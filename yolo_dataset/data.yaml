@@ -1,0 +1,8 @@
+path: C:/Users/TANVI/OneDrive/Documents/IP_Project/yolo_dataset
+train: images/train
+val: images/val
+test: images/test
+
+nc: 1
+names:
+  0: number_plate

@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vehicle Profile Analysis - {{ result.registration_number }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='vehicle_identified.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="results-container">
+        <!-- Navigation Header -->
+        <div class="nav-header">
+            <a href="{{ url_for('index') }}" class="btn-back">
+                <span>◀</span>
+                <span>Analyze Another Vehicle</span>
+            </a>
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: var(--secondary);">
+                ANALYSIS ID: #{{ analysis_id }}
+            </div>
+        </div>
+
+        <!-- Hero Plate Banner -->
+        <div class="hero-plate-card">
+            <div class="section-label">Detection Result</div>
+            
+            <div class="hsrp-plate">
+                <div class="hsrp-strip">
+                    <div class="hsrp-ind">IND</div>
+                    <div class="hsrp-chakra"></div>
+                </div>
+                <div class="hsrp-number">{{ result.registration_number }}</div>
+            </div>
+
+            <!-- Status Pills -->
+            <div class="status-pill-grid">
+                <div class="status-pill pill-info">
+                    <span> Method:</span>
+                    <strong>YOLO (video_images)</strong>
+                </div>
+                <div class="status-pill pill-info">
+                    <span>OCR Engine:</span>
+                    <strong>Tesseract</strong>
+                </div>
+                {% if result.db_match.matched %}
+                <div class="status-pill pill-matched">
+                    <span>✓ Database:</span>
+                    <strong>MATCHED</strong>
+                </div>
+                {% else %}
+                <div class="status-pill pill-not-found">
+                    <span>⚠ Database:</span>
+                    <strong>NOT FOUND</strong>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Main Split Grid: Imagery & Vehicle Profile -->
+        <div class="result-split-grid">
+            <!-- Left Panel: Visual Evidence -->
+            <div class="card-panel">
+                <h3 class="panel-title">
+                    <span></span>
+                    <span>Visual Plate Localization</span>
+                </h3>
+
+                <div class="image-viewer">
+                    <div class="detected-vehicle-frame">
+                        <img src="{{ url_for('uploaded_file', filename=result.debug_image_filename) }}" alt="Detected Vehicle with Green Box">
+                    </div>
+
+                    <div class="crop-preview-box">
+                        <img src="{{ url_for('uploaded_file', filename=result.crop_image_filename) }}" alt="Tightly Cropped Plate">
+                        <div class="crop-meta">
+                            <div><strong>BBox:</strong> {{ result.bbox }}</div>
+                            <div><strong>YOLO Confidence:</strong> {{ "%.2f"|format(result.confidence * 100) }}%</div>
+                            <div><strong>Green Box:</strong> Active Tightly Bounded</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: Vehicle Profile Specs -->
+            <div class="card-panel">
+                <h3 class="panel-title">
+                    <span></span>
+                    <span>Vehicle Profile Information</span>
+                </h3>
+
+                {% if result.db_match.matched and result.db_match.vehicle_info %}
+                {% set v = result.db_match.vehicle_info %}
+                <div class="profile-specs-grid">
+                    <div class="spec-item full-width">
+                        <div class="spec-label">Registration Number</div>
+                        <div class="spec-value highlight-val">{{ v.registration_number }}</div>
+                    </div>
+                    
+                    <div class="spec-item">
+                        <div class="spec-label">State</div>
+                        <div class="spec-value">{{ v.state_name }} ({{ v.state_code }})</div>
+                    </div>
+
+                    <div class="spec-item">
+                        <div class="spec-label">RTO Authority</div>
+                        <div class="spec-value">{{ v.rto_code }}</div>
+                    </div>
+
+                    <div class="spec-item">
+                        <div class="spec-label">Vehicle Class</div>
+                        <div class="spec-value">{{ v.vehicle_class }}</div>
+                    </div>
+
+                    <div class="spec-item">
+                        <div class="spec-label">Manufacturer</div>
+                        <div class="spec-value">{{ v.manufacturer }}</div>
+                    </div>
+
+                    <div class="spec-item">
+                        <div class="spec-label">Model</div>
+                        <div class="spec-value">{{ v.model }}</div>
+                    </div>
+
+                    <div class="spec-item">
+                        <div class="spec-label">Fuel Type</div>
+                        <div class="spec-value">{{ v.fuel_type }}</div>
+                    </div>
+
+                    <div class="spec-item">
+                        <div class="spec-label">Manufacturing Year</div>
+                        <div class="spec-value">{{ v.manufacturing_year }}</div>
+                    </div>
+
+                    <div class="spec-item">
+                        <div class="spec-label">Vehicle Age</div>
+                        <div class="spec-value">{{ v.vehicle_age }} Years</div>
+                    </div>
+
+                    <div class="spec-item full-width">
+                        <div class="spec-label">Registration Date</div>
+                        <div class="spec-value">{{ v.registration_date }}</div>
+                    </div>
+                </div>
+                {% else %}
+                <div class="not-found-card">
+                    <div class="not-found-icon"></div>
+                    <h3>Vehicle not found in database</h3>
+                    <p>
+                        The OCR successfully recognized plate sequence 
+                        <strong>{{ result.registration_number }}</strong>, but no matching identity was recorded in the database registry.
+                    </p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Technical Analysis & Diagnostics -->
+        <div class="ocr-breakdown-card">
+            <h3 class="panel-title">
+                <span></span>
+                <span>Optical Character Recognition (OCR) Diagnostics</span>
+            </h3>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.25rem;">
+                <div class="spec-item">
+                    <div class="spec-label">Selected OCR Candidate</div>
+                    <div class="spec-value highlight-val">{{ result.ocr.selected_ocr or "N/A" }}</div>
+                </div>
+                <div class="spec-item">
+                    <div class="spec-label">Raw Tesseract Output</div>
+                    <div class="spec-value">{{ result.ocr.raw_ocr or "N/A" }}</div>
+                </div>
+                <div class="spec-item">
+                    <div class="spec-label">Database Match Score</div>
+                    <div class="spec-value">{{ "%.1f"|format(result.db_match.score * 100) }}%</div>
+                </div>
+                <div class="spec-item">
+                    <div class="spec-label">Match Strategy</div>
+                    <div class="spec-value" style="text-transform: capitalize;">{{ result.db_match.match_type }}</div>
+                </div>
+            </div>
+
+            {% if result.ocr.ocr_candidates %}
+            <div class="spec-label">Ranked Multi-Variant Candidates</div>
+            <div class="candidate-chips">
+                {% for cand in result.ocr.ocr_candidates %}
+                <span class="candidate-chip {% if cand == result.registration_number %}active{% endif %}">
+                    {{ cand }}
+                </span>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

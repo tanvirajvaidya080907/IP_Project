@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live AI Webcam Scanner • Vehicle Number Plate Recognition</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+    <style>
+        .live-grid {
+            display: grid;
+            grid-template-columns: 1.15fr 0.85fr;
+            gap: 1.5rem;
+            align-items: start;
+        }
+
+        @media (max-width: 1024px) {
+            .live-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Video Viewport Card */
+        .video-viewport-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-glass);
+            border-radius: 1rem;
+            padding: 1.25rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+            position: relative;
+            backdrop-filter: blur(16px);
+        }
+
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            background: #050B14;
+            border-radius: 0.75rem;
+            overflow: hidden;
+            border: 1px solid rgba(34, 211, 238, 0.25);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .video-stream-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .live-hud-badge {
+            position: absolute;
+            top: 1rem;
+            left: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.35rem 0.85rem;
+            background: rgba(7, 17, 31, 0.85);
+            border: 1px solid var(--border-glass);
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--secondary);
+            backdrop-filter: blur(8px);
+            z-index: 10;
+        }
+
+        .live-hud-fps {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            padding: 0.35rem 0.85rem;
+            background: rgba(7, 17, 31, 0.85);
+            border: 1px solid var(--border-glass);
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            color: #10B981;
+            backdrop-filter: blur(8px);
+            z-index: 10;
+        }
+
+        /* Controls Toolbar */
+        .controls-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            margin-top: 1.25rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .btn-ctrl-group {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .btn-live {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1.5rem;
+            font-size: 0.95rem;
+            font-weight: 700;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: none;
+        }
+
+        .btn-live-start {
+            background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+            color: #FFFFFF;
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.4);
+        }
+        .btn-live-start:hover {
+            box-shadow: 0 0 25px rgba(16, 185, 129, 0.7);
+            transform: translateY(-1px);
+        }
+
+        .btn-live-stop {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid var(--danger);
+            color: #F87171;
+        }
+        .btn-live-stop:hover {
+            background: var(--danger);
+            color: #FFFFFF;
+            box-shadow: 0 0 20px rgba(239, 68, 68, 0.5);
+        }
+
+        .select-camera {
+            padding: 0.65rem 1rem;
+            background: rgba(11, 23, 44, 0.8);
+            border: 1px solid var(--border-glass);
+            border-radius: 0.5rem;
+            color: var(--text-main);
+            font-size: 0.85rem;
+            font-family: inherit;
+            outline: none;
+            cursor: pointer;
+        }
+
+        /* Feed Side Panel */
+        .live-feed-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border-glass);
+            border-radius: 1rem;
+            padding: 1.25rem;
+            backdrop-filter: blur(16px);
+            display: flex;
+            flex-direction: column;
+            height: 650px;
+        }
+
+        .feed-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .feed-header-left {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+        }
+
+        .feed-header h3 {
+            font-size: 1.1rem;
+            font-weight: 700;
+        }
+
+        .feed-count-badge {
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid #10B981;
+            color: #34D399;
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 0.2rem 0.6rem;
+            border-radius: 9999px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .feed-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .btn-feed-action {
+            padding: 0.35rem 0.75rem;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 0.4rem;
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .btn-feed-action:hover {
+            color: #FFFFFF;
+            border-color: var(--secondary);
+        }
+
+        /* Detection Feed List */
+        .feed-list {
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 0.95rem;
+            padding-right: 0.35rem;
+            flex: 1;
+        }
+
+        .feed-list::-webkit-scrollbar {
+            width: 6px;
+        }
+        .feed-list::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.1);
+        }
+        .feed-list::-webkit-scrollbar-thumb {
+            background: rgba(34, 211, 238, 0.2);
+            border-radius: 3px;
+        }
+
+        /* Verified Vehicle Profile Card */
+        .vehicle-live-card {
+            background: rgba(16, 33, 62, 0.75);
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            border-radius: 0.85rem;
+            padding: 1rem;
+            display: flex;
+            gap: 1rem;
+            align-items: flex-start;
+            animation: slideIn 0.35s ease-out;
+            transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+        .vehicle-live-card:hover {
+            transform: translateY(-2px);
+            border-color: #10B981;
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.25);
+            background: rgba(20, 45, 80, 0.85);
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-12px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .card-crop-thumb {
+            width: 100px;
+            height: 65px;
+            border-radius: 0.5rem;
+            border: 1px solid rgba(34, 211, 238, 0.4);
+            object-fit: cover;
+            background: #000;
+            flex-shrink: 0;
+            margin-top: 0.15rem;
+        }
+
+        .card-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .card-plate-tag {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 800;
+            font-size: 1.15rem;
+            color: #FFFFFF;
+            letter-spacing: 0.06em;
+            display: inline-block;
+            background: #000000;
+            border: 1px solid #333333;
+            border-left: 6px solid #2563EB;
+            padding: 0.2rem 0.6rem;
+            border-radius: 0.3rem;
+        }
+
+        .pill-verified {
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 0.2rem 0.6rem;
+            border-radius: 9999px;
+            text-transform: uppercase;
+            background: rgba(16, 185, 129, 0.2);
+            border: 1px solid #10B981;
+            color: #34D399;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        .card-vehicle-title {
+            font-size: 1rem;
+            font-weight: 700;
+            color: #FFFFFF;
+            margin-top: 0.4rem;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .card-vehicle-class {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--secondary);
+            background: rgba(34, 211, 238, 0.12);
+            padding: 0.15rem 0.45rem;
+            border-radius: 0.25rem;
+        }
+
+        .card-details-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 0.25rem;
+            margin-top: 0.45rem;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+        }
+
+        .card-detail-item {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .card-footer-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 0.6rem;
+            padding-top: 0.45rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            font-size: 0.72rem;
+            color: var(--text-dim);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 5rem 1rem;
+            color: var(--text-dim);
+        }
+        .empty-icon {
+            font-size: 3rem;
+            margin-bottom: 0.75rem;
+            opacity: 0.7;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- HUD Header -->
+        <header class="header-hud">
+            <div class="badge-system">
+                <span class="pulse-dot"></span>
+                <span>Live AI Vision Engine • Active</span>
+            </div>
+            <h1 class="main-title">Live AI Webcam Vehicle Scanner</h1>
+            <p class="sub-title">
+                Continuous real-time computer vision stream with YOLO plate detection, 
+                asynchronous OCR, and automated vehicle database profiling.
+            </p>
+        </header>
+
+        <!-- Mode Navigation Tabs -->
+        <div class="mode-nav-tabs">
+            <a href="{{ url_for('index') }}" class="tab-btn">
+                <span></span>
+                <span>Static Image Mode</span>
+            </a>
+            <a href="{{ url_for('live') }}" class="tab-btn active">
+                <span></span>
+                <span>Live AI Webcam Feed</span>
+            </a>
+        </div>
+
+        <!-- Main Live Grid -->
+        <div class="live-grid">
+            <!-- Left: Video Viewport & Controls -->
+            <div class="video-viewport-card">
+                <div class="video-wrapper">
+                    <div class="live-hud-badge">
+                        <span class="pulse-dot" id="live-indicator-dot" style="background: #EF4444; box-shadow: 0 0 8px #EF4444;"></span>
+                        <span id="live-indicator-text">STANDBY</span>
+                    </div>
+                    <div class="live-hud-fps" id="live-fps-badge">FPS: 0.0</div>
+                    
+                    <img id="video-stream" class="video-stream-img" src="{{ url_for('video_feed') }}" alt="Live Camera Feed">
+                </div>
+
+                <div class="controls-toolbar">
+                    <div class="btn-ctrl-group">
+                        <button type="button" class="btn-live btn-live-start" id="btn-start-cam">
+                            <span>▶</span>
+                            <span>Start Live Webcam</span>
+                        </button>
+                        <button type="button" class="btn-live btn-live-stop" id="btn-stop-cam" style="display: none;">
+                            <span>⏹</span>
+                            <span>Stop Camera</span>
+                        </button>
+                    </div>
+
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <label for="camera-select" style="font-size: 0.8rem; color: var(--text-muted);">Camera Source:</label>
+                        <select id="camera-select" class="select-camera">
+                            <option value="0">Camera 0 (Default / USB)</option>
+                            <option value="1">Camera 1 (Secondary)</option>
+                            <option value="2">Camera 2 (External)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Real-Time Detection Feed Panel -->
+            <div class="live-feed-panel">
+                <div class="feed-header">
+                    <div class="feed-header-left">
+                        <h3>Verified Vehicles</h3>
+                        <span class="feed-count-badge" id="detection-count">0 VERIFIED</span>
+                    </div>
+                    <div class="feed-actions">
+                        <button type="button" class="btn-feed-action" id="btn-clear-history" title="Clear log">Clear</button>
+                        <button type="button" class="btn-feed-action" id="btn-export-csv" title="Download CSV">Export CSV</button>
+                    </div>
+                </div>
+
+                <!-- Live Stream Items List -->
+                <div class="feed-list" id="feed-list-container">
+                    <div class="empty-state" id="empty-state">
+                        <div class="empty-icon">🛡️</div>
+                        <p style="font-size: 0.95rem; font-weight: 600; color: var(--text-muted);">Awaiting Verified Vehicle Detection</p>
+                        <p style="font-size: 0.8rem; margin-top: 0.35rem;">Only verified database-matched vehicles will be profiled and displayed here.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        Live AI Webcam Vehicle Scanner • Powered by Ultralytics YOLO & Tesseract OCR
+    </footer>
+
+    <script>
+        const btnStartCam = document.getElementById('btn-start-cam');
+        const btnStopCam = document.getElementById('btn-stop-cam');
+        const cameraSelect = document.getElementById('camera-select');
+        const liveIndicatorDot = document.getElementById('live-indicator-dot');
+        const liveIndicatorText = document.getElementById('live-indicator-text');
+        const liveFpsBadge = document.getElementById('live-fps-badge');
+        const detectionCountBadge = document.getElementById('detection-count');
+        const feedListContainer = document.getElementById('feed-list-container');
+        const emptyState = document.getElementById('empty-state');
+        const btnClearHistory = document.getElementById('btn-clear-history');
+        const btnExportCsv = document.getElementById('btn-export-csv');
+        const videoStream = document.getElementById('video-stream');
+
+        let allDetections = [];
+
+        // Start Camera
+        btnStartCam.addEventListener('click', async () => {
+            const camIdx = cameraSelect.value;
+            btnStartCam.disabled = true;
+            btnStartCam.innerHTML = '<span>⏳</span><span>Starting...</span>';
+
+            try {
+                const res = await fetch('/api/camera/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ camera_index: camIdx })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    setCameraRunningUI(true);
+                } else {
+                    alert('Camera Error: ' + data.message);
+                    setCameraRunningUI(false);
+                }
+            } catch (err) {
+                alert('Failed to connect to camera server: ' + err);
+                setCameraRunningUI(false);
+            } finally {
+                btnStartCam.disabled = false;
+                btnStartCam.innerHTML = '<span>▶</span><span>Start Live Webcam</span>';
+            }
+        });
+
+        // Stop Camera
+        btnStopCam.addEventListener('click', async () => {
+            try {
+                await fetch('/api/camera/stop', { method: 'POST' });
+                setCameraRunningUI(false);
+            } catch (err) {
+                console.error('Error stopping camera:', err);
+            }
+        });
+
+        function setCameraRunningUI(isRunning) {
+            if (isRunning) {
+                btnStartCam.style.display = 'none';
+                btnStopCam.style.display = 'inline-flex';
+                cameraSelect.disabled = true;
+                liveIndicatorDot.style.background = '#22D3EE';
+                liveIndicatorDot.style.boxShadow = '0 0 10px #22D3EE';
+                liveIndicatorText.textContent = 'LIVE FEED ACTIVE';
+                videoStream.src = "{{ url_for('video_feed') }}?t=" + new Date().getTime();
+            } else {
+                btnStartCam.style.display = 'inline-flex';
+                btnStopCam.style.display = 'none';
+                cameraSelect.disabled = false;
+                liveIndicatorDot.style.background = '#EF4444';
+                liveIndicatorDot.style.boxShadow = '0 0 8px #EF4444';
+                liveIndicatorText.textContent = 'STANDBY';
+                liveFpsBadge.textContent = 'FPS: 0.0';
+            }
+        }
+
+        // Poll for Status and Live Detections
+        async function pollDetections() {
+            try {
+                // 1. Status Poll
+                const statusRes = await fetch('/api/camera/status');
+                const statusData = await statusRes.json();
+                if (statusData.is_running) {
+                    liveFpsBadge.textContent = `FPS: ${statusData.fps.toFixed(1)}`;
+                }
+
+                // 2. Verified Detections Poll
+                const detRes = await fetch('/api/camera/detections');
+                const detData = await detRes.json();
+                
+                allDetections = detData.detections || [];
+                detectionCountBadge.textContent = `${allDetections.length} VERIFIED`;
+
+                renderDetections(allDetections);
+            } catch (err) {
+                console.error('Polling error:', err);
+            }
+        }
+
+        function renderDetections(detections) {
+            if (!detections || detections.length === 0) {
+                feedListContainer.innerHTML = '';
+                feedListContainer.appendChild(emptyState);
+                emptyState.style.display = 'block';
+                return;
+            }
+
+            emptyState.style.display = 'none';
+
+            // Rebuild/sync the feed list cleanly
+            feedListContainer.innerHTML = '';
+            detections.forEach(item => {
+                const card = createVehicleCard(item);
+                feedListContainer.appendChild(card);
+            });
+        }
+
+        function createVehicleCard(item) {
+            const card = document.createElement('div');
+            card.className = 'vehicle-live-card';
+            card.id = `card-${item.normalized_plate}`;
+
+            const v = item.vehicle_details || {};
+            const makeModel = v.full_name || `${v.vehicle_make || ''} ${v.vehicle_model || ''}`.trim() || 'Vehicle Verified';
+            const vClass = v.vehicle_class || 'Automobile';
+            const fuel = v.fuel_type || 'Fuel';
+            const state = v.state_name ? `${v.state_name}` : 'India';
+            const rto = v.rto_code ? `(${v.rto_code} RTO)` : '';
+            const regDate = v.registration_date ? `Reg: ${v.registration_date}` : '';
+            const mfgYear = v.manufacturing_year ? `Year: ${v.manufacturing_year}` : '';
+
+            card.innerHTML = `
+                <img class="card-crop-thumb" src="${item.crop_url}" alt="Crop" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%2265%22><rect width=%22100%25%22 height=%22100%25%22 fill=%22%23112233%22/><text x=%2250%25%22 y=%2250%25%22 fill=%22%23667788%22 font-size=%2210%22 text-anchor=%22middle%22 dominant-baseline=%22middle%22>Plate Crop</text></svg>'">
+                <div class="card-info">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+                        <span class="card-plate-tag">${item.registration_number}</span>
+                        <span class="pill-verified">✓ VERIFIED IN DB</span>
+                    </div>
+
+                    <div class="card-vehicle-title">
+                        <span> ${makeModel}</span>
+                        <span class="card-vehicle-class">${vClass}</span>
+                    </div>
+
+                    <div class="card-details-grid">
+                        <div class="card-detail-item">
+                            <span> <strong>Location:</strong> ${state} ${rto}</span>
+                        </div>
+                        <div class="card-detail-item">
+                            <span> <strong>Fuel:</strong> ${fuel} &nbsp;|&nbsp; 🗓 <strong>${regDate}</strong> ${mfgYear ? `(${mfgYear})` : ''}</span>
+                        </div>
+                    </div>
+
+                    <div class="card-footer-meta">
+                        <span style="color: #34D399; font-weight: 700;">Conf: ${item.confidence}%</span>
+                        <span>⏱ ${item.timestamp}</span>
+                    </div>
+                </div>
+            `;
+            return card;
+        }
+
+        // Clear History
+        btnClearHistory.addEventListener('click', async () => {
+            if (confirm('Clear verified live detection logs for this session?')) {
+                await fetch('/api/camera/clear', { method: 'POST' });
+                allDetections = [];
+                feedListContainer.innerHTML = '';
+                feedListContainer.appendChild(emptyState);
+                emptyState.style.display = 'block';
+                detectionCountBadge.textContent = '0 VERIFIED';
+            }
+        });
+
+        // Export CSV
+        btnExportCsv.addEventListener('click', () => {
+            if (allDetections.length === 0) {
+                alert('No verified detections to export yet.');
+                return;
+            }
+
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += "Registration Number,Status,Make,Model,Class,Fuel Type,State,RTO,Reg Date,Mfg Year,Confidence,Timestamp,Date\n";
+
+            allDetections.forEach(d => {
+                const v = d.vehicle_details || {};
+                const row = [
+                    `"${d.registration_number}"`,
+                    `"DATABASE VERIFIED"`,
+                    `"${v.vehicle_make || 'N/A'}"`,
+                    `"${v.vehicle_model || 'N/A'}"`,
+                    `"${v.vehicle_class || 'N/A'}"`,
+                    `"${v.fuel_type || 'N/A'}"`,
+                    `"${v.state_name || 'N/A'}"`,
+                    `"${v.rto_code || 'N/A'}"`,
+                    `"${v.registration_date || 'N/A'}"`,
+                    `"${v.manufacturing_year || 'N/A'}"`,
+                    `"${d.confidence}%"`,
+                    `"${d.timestamp}"`,
+                    `"${d.date}"`
+                ].join(",");
+                csvContent += row + "\n";
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `verified_vehicles_${new Date().toISOString().slice(0,10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+
+        // Start polling every 1 second
+        setInterval(pollDetections, 1000);
+        pollDetections();
+    </script>
+</body>
+</html>
