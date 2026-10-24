@@ -580,13 +580,10 @@
             card.id = `card-${item.normalized_plate}`;
 
             const v = item.vehicle_details || {};
-            const makeModel = v.full_name || `${v.vehicle_make || ''} ${v.vehicle_model || ''}`.trim() || 'Vehicle Verified';
-            const vClass = v.vehicle_class || 'Automobile';
             const fuel = v.fuel_type || 'Fuel';
             const state = v.state_name ? `${v.state_name}` : 'India';
             const rto = v.rto_code ? `(${v.rto_code} RTO)` : '';
             const regDate = v.registration_date ? `Reg: ${v.registration_date}` : '';
-            const mfgYear = v.manufacturing_year ? `Year: ${v.manufacturing_year}` : '';
 
             card.innerHTML = `
                 <img class="card-crop-thumb" src="${item.crop_url}" alt="Crop" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%2265%22><rect width=%22100%25%22 height=%22100%25%22 fill=%22%23112233%22/><text x=%2250%25%22 y=%2250%25%22 fill=%22%23667788%22 font-size=%2210%22 text-anchor=%22middle%22 dominant-baseline=%22middle%22>Plate Crop</text></svg>'">
@@ -596,17 +593,12 @@
                         <span class="pill-verified">✓ VERIFIED IN DB</span>
                     </div>
 
-                    <div class="card-vehicle-title">
-                        <span> ${makeModel}</span>
-                        <span class="card-vehicle-class">${vClass}</span>
-                    </div>
-
-                    <div class="card-details-grid">
+                    <div class="card-details-grid" style="margin-top: 0.4rem;">
                         <div class="card-detail-item">
-                            <span> <strong>Location:</strong> ${state} ${rto}</span>
+                            <span>📍 <strong>Location:</strong> ${state} ${rto}</span>
                         </div>
                         <div class="card-detail-item">
-                            <span> <strong>Fuel:</strong> ${fuel} &nbsp;|&nbsp; 🗓 <strong>${regDate}</strong> ${mfgYear ? `(${mfgYear})` : ''}</span>
+                            <span>⛽ <strong>Fuel:</strong> ${fuel} &nbsp;|&nbsp; 🗓 <strong>${regDate}</strong></span>
                         </div>
                     </div>
 
@@ -639,21 +631,17 @@
             }
 
             let csvContent = "data:text/csv;charset=utf-8,";
-            csvContent += "Registration Number,Status,Make,Model,Class,Fuel Type,State,RTO,Reg Date,Mfg Year,Confidence,Timestamp,Date\n";
+            csvContent += "Registration Number,Status,Fuel Type,State,RTO,Reg Date,Confidence,Timestamp,Date\n";
 
             allDetections.forEach(d => {
                 const v = d.vehicle_details || {};
                 const row = [
                     `"${d.registration_number}"`,
                     `"DATABASE VERIFIED"`,
-                    `"${v.vehicle_make || 'N/A'}"`,
-                    `"${v.vehicle_model || 'N/A'}"`,
-                    `"${v.vehicle_class || 'N/A'}"`,
                     `"${v.fuel_type || 'N/A'}"`,
                     `"${v.state_name || 'N/A'}"`,
                     `"${v.rto_code || 'N/A'}"`,
                     `"${v.registration_date || 'N/A'}"`,
-                    `"${v.manufacturing_year || 'N/A'}"`,
                     `"${d.confidence}%"`,
                     `"${d.timestamp}"`,
                     `"${d.date}"`

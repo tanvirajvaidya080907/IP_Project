@@ -99,7 +99,7 @@ def run_tests():
         print(f"Matching Score  : {match['score']:.2%}")
         if match["matched"] and match["vehicle_info"]:
             v = match["vehicle_info"]
-            print(f"Vehicle Profile : {v['manufacturer']} {v['model']} ({v['manufacturing_year']}) - {v['state_name']}")
+            print(f"Vehicle Profile : Fuel: {v.get('fuel_type', '')} - {v.get('state_name', '')}")
             
         results.append({
             "category": cat,

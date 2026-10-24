@@ -191,15 +191,11 @@ class WebcamProcessor:
             v_info = db_result.get("vehicle_info") or {}
             
             # Format display info from database
-            manufacturer = v_info.get("manufacturer", "")
-            model_name = v_info.get("model", "")
-            full_vehicle_name = f"{manufacturer} {model_name}".strip() or "Vehicle Identified"
-            v_class = v_info.get("vehicle_class", "Car")
             fuel = v_info.get("fuel_type", "Petrol")
             state_name = v_info.get("state_name", "")
             rto = v_info.get("rto_code", "")
             reg_date = v_info.get("registration_date", "")
-            mfg_year = v_info.get("manufacturing_year", "")
+            vehicle_age = v_info.get("vehicle_age", "")
 
             # Save plate crop image
             crop_id = uuid.uuid4().hex[:8]
@@ -220,15 +216,11 @@ class WebcamProcessor:
                 "date": date_str,
                 "crop_url": f"/uploads/live_crops/{crop_filename}",
                 "vehicle_details": {
-                    "vehicle_make": manufacturer,
-                    "vehicle_model": model_name,
-                    "full_name": full_vehicle_name,
-                    "vehicle_class": v_class,
                     "fuel_type": fuel,
                     "state_name": state_name,
                     "rto_code": rto,
                     "registration_date": reg_date,
-                    "manufacturing_year": mfg_year
+                    "vehicle_age": vehicle_age
                 },
                 "match_score": db_result.get("score", 1.0),
                 "candidate_used": db_result.get("candidate_used", selected_ocr)
@@ -256,7 +248,7 @@ class WebcamProcessor:
 
             # Update active HUD overlay
             self._update_overlay(bbox, resolved_plate, True, conf)
-            print(f"[VERIFIED VEHICLE PROFILED] {resolved_plate} → {full_vehicle_name} ({v_class}) | Score: {db_result.get('score', 1.0)}", flush=True)
+            print(f"[VERIFIED VEHICLE PROFILED] {resolved_plate} | Score: {db_result.get('score', 1.0)}", flush=True)
 
         except Exception as e:
             print(f"[Error in _process_plate_ocr_async] {e}", flush=True)

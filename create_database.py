@@ -69,28 +69,7 @@ RTO_LOCATIONS = {
     "GJ15": "Valsad"
 }
 
-CAR_PROFILES = [
-    ("Maruti Suzuki", "Swift", "Hatchback", "Petrol"),
-    ("Maruti Suzuki", "Baleno", "Hatchback", "Petrol"),
-    ("Maruti Suzuki", "Dzire", "Sedan", "CNG"),
-    ("Hyundai", "Creta", "SUV", "Diesel"),
-    ("Hyundai", "i20", "Hatchback", "Petrol"),
-    ("Hyundai", "Venue", "Compact SUV", "Petrol"),
-    ("Tata Motors", "Nexon", "Compact SUV", "Diesel"),
-    ("Tata Motors", "Harrier", "SUV", "Diesel"),
-    ("Tata Motors", "Altroz", "Hatchback", "Petrol"),
-    ("Honda", "City", "Sedan", "Petrol"),
-    ("Honda", "Amaze", "Sedan", "Petrol"),
-    ("Toyota", "Innova Crysta", "MPV", "Diesel"),
-    ("Toyota", "Fortuner", "SUV", "Diesel"),
-    ("Mahindra", "Scorpio-N", "SUV", "Diesel"),
-    ("Mahindra", "XUV700", "SUV", "Diesel"),
-    ("Mahindra", "Thar", "SUV", "Diesel"),
-    ("Kia", "Seltos", "SUV", "Petrol"),
-    ("Kia", "Sonet", "Compact SUV", "Diesel"),
-    ("Volkswagen", "Taigun", "SUV", "Petrol"),
-    ("Skoda", "Slavia", "Sedan", "Petrol")
-]
+FUEL_TYPES = ["Petrol", "Diesel", "CNG"]
 
 def generate_deterministic_profile(reg_num):
     reg_clean = "".join(ch for ch in reg_num.upper() if ch.isalnum())
@@ -105,11 +84,10 @@ def generate_deterministic_profile(reg_num):
     rto_code = reg_clean[:4]
     rto_name = RTO_LOCATIONS.get(rto_code, f"{state_name} RTO ({rto_code})")
     
-    # Pick profile
-    profile = CAR_PROFILES[hash_int % len(CAR_PROFILES)]
-    manufacturer, model, v_class, fuel = profile
+    # Pick fuel type
+    fuel = FUEL_TYPES[hash_int % len(FUEL_TYPES)]
     
-    # Manufacturing year (2014 to 2024)
+    # Vehicle age (derived from registration year)
     year = 2014 + (hash_int % 11)
     current_year = 2026
     age = current_year - year
@@ -124,11 +102,7 @@ def generate_deterministic_profile(reg_num):
         "state_code": state_code,
         "state_name": state_name,
         "rto_code": rto_code,
-        "vehicle_class": v_class,
-        "manufacturer": manufacturer,
-        "model": model,
         "fuel_type": fuel,
-        "manufacturing_year": year,
         "vehicle_age": age,
         "registration_date": reg_date,
         "is_synthetic_metadata": 1
@@ -143,6 +117,8 @@ def create_database(xml_dir="dataset/video_images"):
     conn = sqlite3.connect(DATABASE_FILE)
     cursor = conn.cursor()
     
+    cursor.execute("DROP TABLE IF EXISTS vehicles")
+    
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS vehicles (
         vehicle_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -151,11 +127,7 @@ def create_database(xml_dir="dataset/video_images"):
         state_code TEXT NOT NULL,
         state_name TEXT NOT NULL,
         rto_code TEXT NOT NULL,
-        vehicle_class TEXT NOT NULL,
-        manufacturer TEXT NOT NULL,
-        model TEXT NOT NULL,
         fuel_type TEXT NOT NULL,
-        manufacturing_year INTEGER NOT NULL,
         vehicle_age INTEGER NOT NULL,
         registration_date TEXT NOT NULL,
         is_synthetic_metadata INTEGER DEFAULT 1
@@ -194,21 +166,16 @@ def create_database(xml_dir="dataset/video_images"):
         cursor.execute("""
         INSERT OR REPLACE INTO vehicles (
             registration_number, normalized_reg, state_code, state_name,
-            rto_code, vehicle_class, manufacturer, model,
-            fuel_type, manufacturing_year, vehicle_age, registration_date,
+            rto_code, fuel_type, vehicle_age, registration_date,
             is_synthetic_metadata
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data["registration_number"],
             norm_reg,
             data["state_code"],
             data["state_name"],
             data["rto_code"],
-            data["vehicle_class"],
-            data["manufacturer"],
-            data["model"],
             data["fuel_type"],
-            data["manufacturing_year"],
             data["vehicle_age"],
             data["registration_date"],
             data["is_synthetic_metadata"]
