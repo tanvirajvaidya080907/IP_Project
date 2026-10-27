@@ -54,6 +54,10 @@
                     <span>⚠ Database:</span>
                     <strong>NOT FOUND</strong>
                 </div>
+                <div class="status-pill pill-info">
+                    <span>Profile Source:</span>
+                    <strong>Registration Code Lookup</strong>
+                </div>
                 {% endif %}
             </div>
         </div>
@@ -124,13 +128,44 @@
                     </div>
                 </div>
                 {% else %}
-                <div class="not-found-card">
-                    <div class="not-found-icon"></div>
-                    <h3>Vehicle not found in database</h3>
-                    <p>
-                        The OCR successfully recognized plate sequence 
-                        <strong>{{ result.registration_number }}</strong>, but no matching identity was recorded in the database registry.
-                    </p>
+                {% set fb = result.fallback_profile %}
+                <div class="fallback-banner">
+                    <div class="fallback-badge-row">
+                        <span class="source-badge">Registration Code Lookup</span>
+                        <span class="fallback-status-text">No matching record in local database — showing available registration information</span>
+                    </div>
+                </div>
+
+                <div class="profile-specs-grid">
+                    <div class="spec-item full-width">
+                        <div class="spec-label">Registration Number</div>
+                        <div class="spec-value highlight-val">{{ fb.registration_number if fb else result.registration_number }}</div>
+                    </div>
+                    
+                    <div class="spec-item">
+                        <div class="spec-label">State</div>
+                        <div class="spec-value">{{ fb.state if fb else "Not Available" }}</div>
+                    </div>
+
+                    <div class="spec-item">
+                        <div class="spec-label">RTO Authority</div>
+                        <div class="spec-value">{{ fb.rto_authority if fb else "Not Available" }}</div>
+                    </div>
+
+                    <div class="spec-item">
+                        <div class="spec-label">Fuel Type</div>
+                        <div class="spec-value spec-muted">{{ fb.fuel_type if fb else "Not Available" }}</div>
+                    </div>
+
+                    <div class="spec-item">
+                        <div class="spec-label">Vehicle Age</div>
+                        <div class="spec-value spec-muted">{{ fb.vehicle_age if fb else "Not Available" }}</div>
+                    </div>
+
+                    <div class="spec-item full-width">
+                        <div class="spec-label">Registration Date</div>
+                        <div class="spec-value spec-muted">{{ fb.registration_date if fb else "Not Available" }}</div>
+                    </div>
                 </div>
                 {% endif %}
             </div>

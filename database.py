@@ -94,6 +94,45 @@ def position_aware_similarity(candidate, target):
     final_score = max(0.0, min(1.0, raw_score))
     return final_score
 
+def is_valid_confusion_match(cand, target):
+    """
+    Validates whether cand is a plausible optical confusion of target plate.
+    Prevents assigning a completely different vehicle from the database.
+    Requirements:
+    - Same state code
+    - Compatible RTO code (exact or optical confusion)
+    - Compatible trailing number (at most 1 optical confusion discrepancy)
+    """
+    c = normalize_registration(cand)
+    t = normalize_registration(target)
+    if c == t:
+        return True
+    if len(c) < 5 or len(t) < 5:
+        return False
+        
+    # 1. State code MUST match exactly
+    if c[:2] != t[:2]:
+        return False
+        
+    # 2. RTO code compatibility: c[2:4] vs t[2:4]
+    rto_c = c[2:4] if len(c) >= 4 else c[2:]
+    rto_t = t[2:4] if len(t) >= 4 else t[2:]
+    for ch1, ch2 in zip(rto_c, rto_t):
+        if ch1 != ch2 and CONFUSION_PAIRS.get(ch1) != ch2 and CONFUSION_PAIRS.get(ch2) != ch1:
+            return False
+            
+    # 3. Trailing number compatibility
+    num_c = c[-4:] if len(c) >= 8 else c
+    num_t = t[-4:] if len(t) >= 8 else t
+    unexplained_num = 0
+    for ch1, ch2 in zip(num_c, num_t):
+        if ch1 != ch2 and CONFUSION_PAIRS.get(ch1) != ch2 and CONFUSION_PAIRS.get(ch2) != ch1:
+            unexplained_num += 1
+    if unexplained_num > 1:
+        return False
+        
+    return True
+
 def find_best_vehicle_match(ocr_candidates, min_confidence=0.68):
     """
     Matches a list of OCR candidates against the vehicle database.
@@ -136,6 +175,8 @@ def find_best_vehicle_match(ocr_candidates, min_confidence=0.68):
             }
 
     # Stage 2: Best fuzzy/confusion match across all candidates and DB plates
+    # Strictly gated by is_valid_confusion_match so database records never overwrite
+    # a different vehicle registration.
     best_match = None
     best_score = 0.0
     best_candidate_used = cleaned_candidates[0]
@@ -143,6 +184,8 @@ def find_best_vehicle_match(ocr_candidates, min_confidence=0.68):
     for cand in cleaned_candidates:
         for v in db_vehicles:
             target_reg = v["normalized_reg"]
+            if not is_valid_confusion_match(cand, target_reg):
+                continue
             score = position_aware_similarity(cand, target_reg)
             if score > best_score:
                 best_score = score
@@ -161,7 +204,7 @@ def find_best_vehicle_match(ocr_candidates, min_confidence=0.68):
             "message": f"Strong database match with score {best_score:.2%}"
         }
     else:
-        # Confidence too low -> Never invent a vehicle!
+        # Confidence too low or different vehicle -> Never invent or substitute a vehicle!
         return {
             "matched": False,
             "registration_number": cleaned_candidates[0],

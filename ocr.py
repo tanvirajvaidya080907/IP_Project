@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import pytesseract
 from PIL import Image
+from rto_lookup import RTO_AUTHORITIES, INDIAN_STATES as ALL_INDIAN_STATES
 
 # Indian State Codes set
 INDIAN_STATES = {
@@ -140,82 +141,107 @@ def apply_indian_plate_corrections(text):
     """
     Generates intelligent alternatives for an Indian registration string:
     Typical format: [State: 2 letters][RTO: 1-2 digits][Series: 1-2 letters][Number: 1-4 digits]
-    Examples: MH43AF5037, DL8CN6308, MH12FU1014
+    Examples: MH43AF5037, DL8CN6308, MH12FU1014, MH61A7906, MH12HM9713
     """
-    if not text or len(text) < 5:
+    if not text or len(text) < 4:
         return [text] if text else []
         
     candidates = {text}
     
-    # State prefix optical confusions (e.g. W<->M, K<->M)
-    if text.startswith("WH") or text.startswith("KH") or text.startswith("IH"):
-        candidates.add("MH" + text[2:])
+    # 0. Noise trimming (e.g. screws, frame borders, brackets)
+    # Check if a 10-char string has a valid 9-char plate with trailing noise (e.g. MH61A79065 -> MH61A7906)
+    m9 = re.match(r'^([A-Z]{2}[0-9]{1,2}[A-Z]{1}[0-9]{4})[A-Z0-9]$', text)
+    if m9:
+        candidates.add(m9.group(1))
         
-    # Standard 10-character plate: [State 2][RTO 2][Series 2][Number 4]
-    if len(text) == 10:
-        c = list(text)
-        # Pos 0-1: State letters
-        for i in (0, 1):
-            if c[i] in DIGIT_TO_LETTER:
-                c[i] = DIGIT_TO_LETTER[c[i]]
-        # Pos 2-3: RTO digits
-        for i in (2, 3):
-            if c[i] in LETTER_TO_DIGIT:
-                c[i] = LETTER_TO_DIGIT[c[i]]
-        # Pos 4-5: Series letters
-        for i in (4, 5):
-            if c[i] in DIGIT_TO_LETTER:
-                c[i] = DIGIT_TO_LETTER[c[i]]
-        # Pos 6-9: Number digits
-        for i in range(6, 10):
-            if c[i] in LETTER_TO_DIGIT:
-                c[i] = LETTER_TO_DIGIT[c[i]]
-        candidates.add("".join(c))
-        
-    # 9-character plate:
-    elif len(text) == 9:
-        # Format A: [State 2][RTO 2][Series 1][Number 4] (e.g. MH12F1014)
-        c1 = list(text)
-        for i in (0, 1):
-            if c1[i] in DIGIT_TO_LETTER: c1[i] = DIGIT_TO_LETTER[c1[i]]
-        for i in (2, 3):
-            if c1[i] in LETTER_TO_DIGIT: c1[i] = LETTER_TO_DIGIT[c1[i]]
-        if c1[4] in DIGIT_TO_LETTER: c1[4] = DIGIT_TO_LETTER[c1[4]]
-        for i in range(5, 9):
-            if c1[i] in LETTER_TO_DIGIT: c1[i] = LETTER_TO_DIGIT[c1[i]]
-        candidates.add("".join(c1))
-        
-        # Format B: [State 2][RTO 1][Series 2][Number 4] (e.g. DL8CN6308)
-        c2 = list(text)
-        for i in (0, 1):
-            if c2[i] in DIGIT_TO_LETTER: c2[i] = DIGIT_TO_LETTER[c2[i]]
-        if c2[2] in LETTER_TO_DIGIT: c2[2] = LETTER_TO_DIGIT[c2[2]]
-        for i in (3, 4):
-            if c2[i] in DIGIT_TO_LETTER: c2[i] = DIGIT_TO_LETTER[c2[i]]
-        for i in range(5, 9):
-            if c2[i] in LETTER_TO_DIGIT: c2[i] = LETTER_TO_DIGIT[c2[i]]
-        candidates.add("".join(c2))
-        
-        # Format C: Missing initial state letter (e.g. 'M43AFS037' -> 'MH43AF5037')
-        if text[0] == 'M' and text[1:3].isdigit():
-            c3 = 'MH' + text[1:]
-            candidates.update(apply_indian_plate_corrections(c3))
-        elif text[0] == 'D' and text[1].isdigit():
-            c3 = 'DL' + text[1:]
-            candidates.update(apply_indian_plate_corrections(c3))
-        elif text[0] == 'G' and text[1:3].isdigit():
-            c3 = 'GJ' + text[1:]
-            candidates.update(apply_indian_plate_corrections(c3))
+    # Check leading noise (e.g. 1MH61A7906, IMH61A7906)
+    m_lead = re.match(r'^[A-Z0-9]([A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4})$', text)
+    if m_lead:
+        candidates.add(m_lead.group(1))
+    
+    # State prefix optical confusions (e.g. W<->M, K<->M, or second char A,E,N<->H)
+    for t in list(candidates):
+        if t.startswith(("WH", "KH", "IH")):
+            candidates.add("MH" + t[2:])
+        elif t.startswith(("MA", "ME", "MN", "MK", "MW")) and len(t) >= 6:
+            candidates.add("MH" + t[2:])
+            
+    # Process each candidate string
+    current_pool = list(candidates)
+    for cur_text in current_pool:
+        # Standard 10-character plate: [State 2][RTO 2][Series 2][Number 4]
+        if len(cur_text) == 10:
+            c = list(cur_text)
+            # Pos 0-1: State letters
+            for i in (0, 1):
+                if c[i] in DIGIT_TO_LETTER:
+                    c[i] = DIGIT_TO_LETTER[c[i]]
+            # Pos 2-3: RTO digits
+            for i in (2, 3):
+                if c[i] in LETTER_TO_DIGIT:
+                    c[i] = LETTER_TO_DIGIT[c[i]]
+                elif c[i] == 'T':
+                    c[i] = '1'
+            # Pos 4-5: Series letters (only if not already a 9-char structure)
+            if not (cur_text[4].isalpha() and cur_text[5:9].isdigit()):
+                for i in (4, 5):
+                    if c[i] in DIGIT_TO_LETTER:
+                        c[i] = DIGIT_TO_LETTER[c[i]]
+            # Pos 6-9: Number digits
+            for i in range(6, 10):
+                if c[i] in LETTER_TO_DIGIT:
+                    c[i] = LETTER_TO_DIGIT[c[i]]
+            cand_10 = "".join(c)
+            candidates.add(cand_10)
+            
+            # Also allow RTO optical confusion T / 7 <-> 1 (e.g. MH72... / MHT2... -> MH12...)
+            if cand_10.startswith("MH") and cand_10[2] in ('T', '7'):
+                candidates.add("MH1" + cand_10[3:])
+            
+        # 9-character plate:
+        elif len(cur_text) == 9:
+            # Format A: [State 2][RTO 2][Series 1][Number 4] (e.g. MH12F1014, MH61A7906)
+            c1 = list(cur_text)
+            for i in (0, 1):
+                if c1[i] in DIGIT_TO_LETTER: c1[i] = DIGIT_TO_LETTER[c1[i]]
+            for i in (2, 3):
+                if c1[i] in LETTER_TO_DIGIT: c1[i] = LETTER_TO_DIGIT[c1[i]]
+            if c1[4] in DIGIT_TO_LETTER: c1[4] = DIGIT_TO_LETTER[c1[4]]
+            for i in range(5, 9):
+                if c1[i] in LETTER_TO_DIGIT: c1[i] = LETTER_TO_DIGIT[c1[i]]
+            candidates.add("".join(c1))
+            
+            # Format B: [State 2][RTO 1][Series 2][Number 4] (e.g. DL8CN6308)
+            c2 = list(cur_text)
+            for i in (0, 1):
+                if c2[i] in DIGIT_TO_LETTER: c2[i] = DIGIT_TO_LETTER[c2[i]]
+            if c2[2] in LETTER_TO_DIGIT: c2[2] = LETTER_TO_DIGIT[c2[2]]
+            for i in (3, 4):
+                if c2[i] in DIGIT_TO_LETTER: c2[i] = DIGIT_TO_LETTER[c2[i]]
+            for i in range(5, 9):
+                if c2[i] in LETTER_TO_DIGIT: c2[i] = LETTER_TO_DIGIT[c2[i]]
+            candidates.add("".join(c2))
+            
+            # Format C: Missing initial state letter (e.g. 'M43AFS037' -> 'MH43AF5037')
+            if cur_text[0] == 'M' and cur_text[1:3].isdigit():
+                c3 = 'MH' + cur_text[1:]
+                candidates.update(apply_indian_plate_corrections(c3))
+            elif cur_text[0] == 'D' and cur_text[1].isdigit():
+                c3 = 'DL' + cur_text[1:]
+                candidates.update(apply_indian_plate_corrections(c3))
+            elif cur_text[0] == 'G' and cur_text[1:3].isdigit():
+                c3 = 'GJ' + cur_text[1:]
+                candidates.update(apply_indian_plate_corrections(c3))
 
-    # General trailing 4 digits correction
-    if len(text) >= 6:
-        c = list(text)
-        num_start = max(4, len(c) - 4)
-        for i in range(num_start, len(c)):
-            if c[i] in LETTER_TO_DIGIT:
-                c[i] = LETTER_TO_DIGIT[c[i]]
-        candidates.add("".join(c))
-        
+        # General trailing 4 digits correction
+        if len(cur_text) >= 6:
+            c = list(cur_text)
+            num_start = max(4, len(c) - 4)
+            for i in range(num_start, len(c)):
+                if c[i] in LETTER_TO_DIGIT:
+                    c[i] = LETTER_TO_DIGIT[c[i]]
+            candidates.add("".join(c))
+            
     # Second pass for state prefix on all generated candidates
     extra = set()
     for cand in candidates:
@@ -234,25 +260,28 @@ def evaluate_plate_structure(text):
     length = len(text)
     
     # 1. Structural Regex Matching
+    # Equal structural reward (0.50) for standard 10-char AND standard 9-char plates
     if re.match(r'^[A-Z]{2}[0-9]{2}[A-Z]{2}[0-9]{4}$', text):
-        score += 0.50  # Perfect standard 10-char plate (e.g. MH43AF5037)
-    elif re.match(r'^[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}$', text):
-        score += 0.40  # Valid 9-char plate (e.g. DL8CN6308, MH12F1014)
+        score += 0.50  # Standard 10-char plate (e.g. MH43AF5037, MH12HM9713)
+    elif re.match(r'^[A-Z]{2}[0-9]{2}[A-Z]{1}[0-9]{4}$', text):
+        score += 0.50  # Standard 9-char plate (e.g. MH61A7906, MH12FU1014)
+    elif re.match(r'^[A-Z]{2}[0-9]{1}[A-Z]{2}[0-9]{4}$', text):
+        score += 0.45  # Standard single-digit RTO (e.g. DL8CN6308)
     elif re.match(r'^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{1,4}$', text):
-        score += 0.25
+        score += 0.35
     elif 8 <= length <= 10:
         score += 0.15
         
     # 2. State Code validation (first 2 letters)
     st = text[:2]
-    if st in INDIAN_STATES:
+    if st in INDIAN_STATES or st in ALL_INDIAN_STATES:
         score += 0.30
     elif st.isalpha():
         score += 0.10
         
     # 3. RTO Code validation
     rto4 = text[:4]
-    if rto4 in KNOWN_RTOS:
+    if rto4 in KNOWN_RTOS or rto4 in RTO_AUTHORITIES:
         score += 0.20
     elif len(text) >= 4 and text[2:4].isdigit():
         score += 0.10
@@ -261,18 +290,12 @@ def evaluate_plate_structure(text):
     if len(text) >= 8 and text[-4:].isdigit():
         score += 0.10
         
-    return min(1.0, score)
+    return score
 
 def perform_ocr_on_plate(plate_crop_bgr):
     """
-    Executes multi-variant, multi-PSM OCR on the detected plate crop.
-    Returns:
-        dict containing:
-        - raw_ocr: primary extracted text
-        - ocr_candidates: ranked list of candidate strings
-        - selected_ocr: top ranked OCR candidate
-        - confidence: estimated confidence score
-        - variants_used: number of preprocessing variations attempted
+    Executes multi-variant OCR on the detected plate crop, with full support
+    for both single-line car plates and two-line scooter/motorcycle plates.
     """
     if not TESSERACT_AVAILABLE:
         return {
@@ -292,17 +315,39 @@ def perform_ocr_on_plate(plate_crop_bgr):
             "error": "Empty plate crop provided"
         }
 
+    h, w = plate_crop_bgr.shape[:2]
+    ar = w / float(h) if h > 0 else 3.0
+
     variants = generate_preprocessing_variants(plate_crop_bgr)
-    psm_modes = [6, 11, 7, 8, 13]
+    psm_modes = [6, 7, 8]
     whitelist = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
     
     candidate_scores = {}
     candidate_counts = {}
     raw_texts = []
     
-    for v_name, img_var in variants.items():
+    def add_candidate(text):
+        if not text:
+            return
+        cl = clean_ocr_text(text)
+        if not (5 <= len(cl) <= 12):
+            return
+        raw_texts.append(cl)
+        for cand in apply_indian_plate_corrections(cl):
+            candidate_counts[cand] = candidate_counts.get(cand, 0) + 1
+            struct_s = evaluate_plate_structure(cand)
+            vote_s = min(0.30, candidate_counts[cand] * 0.05)
+            total_s = struct_s + vote_s
+            if cand not in candidate_scores or total_s > candidate_scores[cand]:
+                candidate_scores[cand] = total_s
+
+    # Stage 1: Standard whole-crop OCR across all preprocessing variants
+    primary_variants = ["original", "gray", "upscaled", "clahe", "otsu", "adaptive", "bilateral"]
+    for v_name in primary_variants:
+        if v_name not in variants:
+            continue
+        img_var = variants[v_name]
         for psm in psm_modes:
-            # Try both whitelist-constrained and unconstrained OCR
             configs = [
                 f"--oem 3 --psm {psm} -c tessedit_char_whitelist={whitelist}",
                 f"--oem 3 --psm {psm}"
@@ -312,39 +357,62 @@ def perform_ocr_on_plate(plate_crop_bgr):
                     raw = pytesseract.image_to_string(img_var, config=config)
                     if not raw or not raw.strip():
                         continue
-                    
-                    # Extract individual lines and tokens
                     lines = [l.strip() for l in raw.splitlines() if l.strip()]
+                    # When multi-line raw OCR returns lines on a 2-line plate, join them
+                    if ar < 2.2 and len(lines) >= 2:
+                        joined = "".join(clean_ocr_text(l) for l in lines)
+                        add_candidate(joined)
                     for line in lines:
-                        # Clean whole line
-                        cl = clean_ocr_text(line)
-                        if cl and 5 <= len(cl) <= 12:
-                            raw_texts.append(cl)
-                            for cand in apply_indian_plate_corrections(cl):
-                                candidate_counts[cand] = candidate_counts.get(cand, 0) + 1
-                                struct_s = evaluate_plate_structure(cand)
-                                vote_s = min(0.30, candidate_counts[cand] * 0.05)
-                                total_s = struct_s + vote_s
-                                if cand not in candidate_scores or total_s > candidate_scores[cand]:
-                                    candidate_scores[cand] = total_s
-                                    
-                        # Also test space-delimited tokens joined
+                        add_candidate(line)
                         toks = [clean_ocr_text(t) for t in line.split() if clean_ocr_text(t)]
                         toks_filt = [t for t in toks if t not in ('I', 'L', '1') or len(toks) <= 3]
                         for token_list in (toks, toks_filt):
                             if len(token_list) >= 2:
-                                joined = "".join(token_list)
-                                if 5 <= len(joined) <= 12:
-                                    for cand in apply_indian_plate_corrections(joined):
-                                        candidate_counts[cand] = candidate_counts.get(cand, 0) + 1
-                                        struct_s = evaluate_plate_structure(cand)
-                                        vote_s = min(0.30, candidate_counts[cand] * 0.05)
-                                        total_s = struct_s + vote_s
-                                        if cand not in candidate_scores or total_s > candidate_scores[cand]:
-                                            candidate_scores[cand] = total_s
-
+                                add_candidate("".join(token_list))
                 except Exception:
                     continue
+
+    # Stage 2: Dedicated Two-Line Plate Recognition (for square / scooter / motorcycle plates)
+    if ar < 2.5:
+        top_band = plate_crop_bgr[:int(h * 0.55), :]
+        bot_band = plate_crop_bgr[int(h * 0.42):, :]
+        top_cands = set()
+        bot_cands = set()
+        
+        for sub, cset, is_top in [(top_band, top_cands, True), (bot_band, bot_cands, False)]:
+            sub_vars = [sub]
+            if w > 40:
+                # Also try with left IND strip excluded
+                sub_vars.append(sub[:, int(w * 0.12):])
+            for s_img in sub_vars:
+                g = cv2.cvtColor(s_img, cv2.COLOR_BGR2GRAY) if len(s_img.shape) == 3 else s_img
+                scale = max(1.5, 90.0 / float(s_img.shape[0]))
+                up = cv2.resize(g, (int(s_img.shape[1] * scale), int(s_img.shape[0] * scale)), interpolation=cv2.INTER_CUBIC)
+                cl = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4)).apply(up)
+                _, ot = cv2.threshold(cl, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                for proc in [up, cl, ot]:
+                    for psm in [6, 7, 8]:
+                        try:
+                            txt = pytesseract.image_to_string(proc, config=f"--oem 3 --psm {psm} -c tessedit_char_whitelist={whitelist}")
+                            c_txt = clean_ocr_text(txt)
+                            if c_txt and 2 <= len(c_txt) <= 8:
+                                cset.add(c_txt)
+                                if is_top:
+                                    t_clean = re.sub(r'([A-Z0-9]+)[1IL]$', r'\1', c_txt)
+                                    if t_clean and len(t_clean) >= 2:
+                                        cset.add(t_clean)
+                                else:
+                                    b_clean = re.sub(r'^[1IL]([A-Z][0-9]+)$', r'\1', c_txt)
+                                    if b_clean:
+                                        cset.add(b_clean)
+                        except Exception:
+                            continue
+                            
+        # Combine top (Line 1) and bottom (Line 2) in proper order
+        for tc in top_cands:
+            for bc in bot_cands:
+                combo = tc + bc
+                add_candidate(combo)
 
     if not candidate_scores:
         return {

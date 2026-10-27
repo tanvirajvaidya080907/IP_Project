@@ -113,9 +113,9 @@ class PlateDetector:
             bw = max(1, x2 - x1)
             bh = max(1, y2 - y1)
             ar = bw / float(bh)
-            # Aspect ratio for number plates is typically between 1.2 and 6.0
+            # Aspect ratio for number plates: supports car (2.5-6.0), scooter/motorcycle/two-line (0.8-2.5)
             ar_penalty = 1.0
-            if ar < 1.0 or ar > 7.0:
+            if ar < 0.7 or ar > 7.5:
                 ar_penalty = 0.5
             return box_dict["confidence"] * ar_penalty
 
@@ -128,7 +128,7 @@ class PlateDetector:
         y1 = max(0, min(y1, h - 1))
         y2 = max(y1 + 1, min(y2, h))
 
-        # Tightly crop the number plate without aggressive expansion
+        # Tightly crop the number plate according to actual detected coordinates
         plate_crop = img_bgr[y1:y2, x1:x2].copy()
 
         # Draw GREEN bounding box on debug image

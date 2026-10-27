@@ -8,6 +8,7 @@ from flask import Flask, render_template, request, redirect, url_for, send_from_
 from plate_detection import PlateDetector
 from ocr import perform_ocr_on_plate, print_tesseract_status, TESSERACT_AVAILABLE, TESSERACT_PATH
 from database import find_best_vehicle_match, normalize_registration
+from rto_lookup import resolve_registration_fallback
 from video_processor import WebcamProcessor
 
 app = Flask(__name__)
@@ -208,6 +209,14 @@ def analyze():
         resolved_registration = db_result["registration_number"] if db_result["matched"] else (ocr_result["selected_ocr"] or "UNKNOWN")
         norm_plate = normalize_registration(resolved_registration)
 
+        # Fallback registration code resolution if vehicle is not in database
+        fallback_profile = None
+        if not db_result["matched"]:
+            fallback_profile = resolve_registration_fallback(resolved_registration, candidates=candidates)
+            if fallback_profile and fallback_profile.get("is_valid_format"):
+                resolved_registration = fallback_profile["registration_number"]
+                norm_plate = normalize_registration(resolved_registration)
+
         # Standardized Terminal Log
         log_analysis(
             filename=saved_filename,
@@ -233,7 +242,8 @@ def analyze():
             "debug_image_filename": debug_filename,
             "crop_image_filename": crop_filename,
             "ocr": ocr_result,
-            "db_match": db_result
+            "db_match": db_result,
+            "fallback_profile": fallback_profile
         }
 
         return render_template('vehicle_identified.html', result=analysis_payload, analysis_id=unique_id.upper())
