@@ -7,8 +7,9 @@ import cv2
 import numpy as np
 from datetime import datetime
 
-from ocr import perform_ocr_on_plate
+from ocr import perform_ocr_on_plate, evaluate_plate_structure
 from database import find_best_vehicle_match, normalize_registration
+from rto_lookup import resolve_registration_fallback, parse_indian_registration_format
 
 class WebcamProcessor:
     def __init__(self, detector, uploads_dir="uploads"):
@@ -33,7 +34,8 @@ class WebcamProcessor:
         # Vehicle Detections History & Tracking
         self.detected_vehicles = []
         self.tracked_plates = {}  # {plate_str: last_seen_timestamp}
-        self.plate_cooldown_seconds = 8.0  # Avoid logging same plate repeatedly within 8s
+        self.lookup_cache = {}    # {cache_key: (timestamp, db_result, fallback_profile)}
+        self.plate_cooldown_seconds = 15.0  # Avoid repeated DB lookups/logging within cooldown window
         
         # Async OCR Worker Queue
         self.ocr_queue = queue.Queue(maxsize=10)
@@ -121,8 +123,14 @@ class WebcamProcessor:
         process_every_n_frames = 2  # Run YOLO on every 2nd frame for smooth 30+ FPS
         frame_idx = 0
 
-        while self.is_running and self.cap is not None and self.cap.isOpened():
-            ret, frame = self.cap.read()
+        while True:
+            with self.lock:
+                if not self.is_running or self.cap is None:
+                    break
+                cap = self.cap
+            if not cap.isOpened():
+                break
+            ret, frame = cap.read()
             if not ret or frame is None:
                 time.sleep(0.01)
                 continue
@@ -139,12 +147,18 @@ class WebcamProcessor:
 
             # Clean expired overlays (older than 2 seconds)
             now = time.time()
-            self.active_overlays = [ov for ov in self.active_overlays if now - ov['timestamp'] < 2.0]
+            with self.lock:
+                self.active_overlays = [ov for ov in self.active_overlays if now - ov['timestamp'] < 2.0]
 
-            # Run YOLO Detection every N frames
+            # Run YOLO Detection every N frames using same full pipeline as static image uploads
             if frame_idx % process_every_n_frames == 0:
                 try:
-                    det_result = self.detector.detect(frame, conf_thresh=0.35)
+                    det_result = self.detector.detect(
+                        frame,
+                        conf_thresh=0.25,
+                        enable_multiscale=True,
+                        save_debug=False,
+                    )
                     if det_result["detected"] and det_result["crop"] is not None:
                         bbox = det_result["bbox"]
                         conf = det_result["confidence"]
@@ -164,92 +178,283 @@ class WebcamProcessor:
 
             time.sleep(0.005)
 
-    def _process_plate_ocr_async(self, plate_crop, bbox, conf):
-        """Runs OCR and Database lookup asynchronously and updates history."""
-        try:
-            ocr_result = perform_ocr_on_plate(plate_crop)
-            candidates = ocr_result.get("ocr_candidates", [])
-            selected_ocr = ocr_result.get("selected_ocr", "").strip()
+    def _cached_lookup(self, selected_ocr, candidates):
+        """Runs DB match and read-only RTO fallback with TTL cache to avoid per-frame DB churn."""
+        cand_list = [str(c).strip() for c in (candidates or []) if c and str(c).strip()]
+        if selected_ocr and selected_ocr not in cand_list:
+            cand_list.insert(0, selected_ocr)
 
-            if not selected_ocr and not candidates:
-                return
+        norm_key = "|".join(normalize_registration(c) for c in cand_list[:5]) or normalize_registration(selected_ocr)
+        now = time.time()
 
-            db_result = find_best_vehicle_match(candidates if candidates else [selected_ocr])
-            
-            resolved_plate = db_result["registration_number"] if db_result["matched"] else (selected_ocr or "UNKNOWN")
-            norm_plate = normalize_registration(resolved_plate)
+        if norm_key:
+            with self.lock:
+                cached = self.lookup_cache.get(norm_key)
+                if cached is not None and (now - cached[0]) < self.plate_cooldown_seconds:
+                    return cached[1], cached[2]
 
-            if len(norm_plate) < 4:
-                return  # Filter out short noise strings
+        db_result = find_best_vehicle_match(cand_list)
+        fallback_profile = None
+        if not db_result.get("matched"):
+            fallback_profile = resolve_registration_fallback(selected_ocr, candidates=cand_list)
 
-            # STRICT REQUIREMENT: Only keep verified database matches
-            if not db_result["matched"] or not db_result.get("vehicle_info"):
-                # Update HUD overlay with plate reading, but do not clutter detection feed
-                self._update_overlay(bbox, resolved_plate, False, conf)
-                return
+        if norm_key:
+            with self.lock:
+                if len(self.lookup_cache) > 100:
+                    cutoff = now - self.plate_cooldown_seconds
+                    self.lookup_cache = {k: v for k, v in self.lookup_cache.items() if v[0] >= cutoff}
+                self.lookup_cache[norm_key] = (now, db_result, fallback_profile)
 
+        return db_result, fallback_profile
+
+    def _resolve_and_record_plate(self, plate_crop, bbox, conf, ocr_result):
+        """Resolves DB/RTO vehicle profile and records detection with cooldown protection."""
+        candidates = ocr_result.get("ocr_candidates", [])
+        selected_ocr = (ocr_result.get("selected_ocr") or "").strip()
+
+        if not selected_ocr and not candidates:
+            return {
+                "resolved_plate": "",
+                "matched": False,
+                "is_fallback": False,
+                "ocr_uncertain": True,
+                "profile_source": "Detection Uncertain",
+                "vehicle_details": None,
+            }
+
+        db_result, fallback_profile = self._cached_lookup(selected_ocr, candidates)
+
+        matched = bool(db_result.get("matched") and db_result.get("vehicle_info"))
+        is_fallback_valid = bool(fallback_profile and fallback_profile.get("is_valid_format"))
+
+        if matched:
+            resolved_plate = db_result["registration_number"]
             v_info = db_result.get("vehicle_info") or {}
-            
-            # Format display info from database
-            fuel = v_info.get("fuel_type", "Petrol")
-            state_name = v_info.get("state_name", "")
-            rto = v_info.get("rto_code", "")
-            reg_date = v_info.get("registration_date", "")
-            vehicle_age = v_info.get("vehicle_age", "")
+            vehicle_details = {
+                "fuel_type": v_info.get("fuel_type", "Not Available"),
+                "state_name": v_info.get("state_name", "Not Available"),
+                "rto_code": v_info.get("rto_code", "Not Available"),
+                "registration_date": v_info.get("registration_date", "Not Available"),
+                "vehicle_age": v_info.get("vehicle_age", "Not Available"),
+            }
+            profile_source = "Database Matched"
+            ocr_uncertain = False
+        elif is_fallback_valid:
+            resolved_plate = fallback_profile["registration_number"]
+            vehicle_details = {
+                "fuel_type": fallback_profile.get("fuel_type", "Not Available"),
+                "state_name": fallback_profile.get("state", "Not Available"),
+                "rto_code": fallback_profile.get("rto_authority", "Not Available"),
+                "registration_date": fallback_profile.get("registration_date", "Not Available"),
+                "vehicle_age": fallback_profile.get("vehicle_age", "Not Available"),
+            }
+            profile_source = "Registration Code Lookup"
+            ocr_uncertain = False
+        else:
+            resolved_plate = selected_ocr or (candidates[0] if candidates else "")
+            norm_check = normalize_registration(resolved_plate)
+            is_plausible = bool(
+                norm_check
+                and (parse_indian_registration_format(norm_check) or evaluate_plate_structure(norm_check) >= 0.65)
+            )
+            ocr_uncertain = not is_plausible
+            vehicle_details = {
+                "fuel_type": "Not Available",
+                "state_name": "Not Available",
+                "rto_code": "Not Available",
+                "registration_date": "Not Available",
+                "vehicle_age": "Not Available",
+            }
+            profile_source = "OCR Recognized" if is_plausible else "OCR Uncertain"
 
-            # Save plate crop image
+        norm_plate = normalize_registration(resolved_plate)
+        if len(norm_plate) < 4 or ocr_uncertain:
+            self._update_overlay(bbox, resolved_plate or "PLATE DETECTED", False, conf)
+            return {
+                "resolved_plate": resolved_plate,
+                "matched": False,
+                "is_fallback": False,
+                "ocr_uncertain": True,
+                "profile_source": "OCR Uncertain",
+                "vehicle_details": None,
+            }
+
+        now = time.time()
+        timestamp_str = datetime.now().strftime("%I:%M:%S %p")
+        date_str = datetime.now().strftime("%b %d, %Y")
+        conf_pct = round(conf * 100, 1)
+
+        with self.lock:
+            existing_idx = None
+            for idx, item in enumerate(self.detected_vehicles):
+                if item.get("normalized_plate") == norm_plate:
+                    existing_idx = idx
+                    break
+
+            last_saved = self.tracked_plates.get(norm_plate, 0.0)
+            within_cooldown = (now - last_saved) < self.plate_cooldown_seconds
+
+            if existing_idx is not None and within_cooldown:
+                # Avoid writing duplicate crops or querying DB repeatedly while plate stays visible
+                self.detected_vehicles[existing_idx]["timestamp"] = timestamp_str
+                if conf_pct > self.detected_vehicles[existing_idx]["confidence"]:
+                    self.detected_vehicles[existing_idx]["confidence"] = conf_pct
+                should_write_crop = False
+            else:
+                should_write_crop = True
+                self.tracked_plates[norm_plate] = now
+
+        if should_write_crop:
             crop_id = uuid.uuid4().hex[:8]
             crop_filename = f"live_{norm_plate}_{crop_id}.jpg"
             crop_path = os.path.join(self.live_crops_dir, crop_filename)
             cv2.imwrite(crop_path, plate_crop)
 
-            timestamp_str = datetime.now().strftime("%I:%M:%S %p")
-            date_str = datetime.now().strftime("%b %d, %Y")
-
             vehicle_record = {
                 "id": crop_id,
                 "registration_number": resolved_plate,
                 "normalized_plate": norm_plate,
-                "matched": True,
-                "confidence": round(conf * 100, 1),
+                "matched": matched,
+                "is_fallback": is_fallback_valid,
+                "profile_source": profile_source,
+                "confidence": conf_pct,
                 "timestamp": timestamp_str,
                 "date": date_str,
                 "crop_url": f"/uploads/live_crops/{crop_filename}",
-                "vehicle_details": {
-                    "fuel_type": fuel,
-                    "state_name": state_name,
-                    "rto_code": rto,
-                    "registration_date": reg_date,
-                    "vehicle_age": vehicle_age
-                },
-                "match_score": db_result.get("score", 1.0),
-                "candidate_used": db_result.get("candidate_used", selected_ocr)
+                "vehicle_details": vehicle_details,
+                "match_score": db_result.get("score", 1.0 if matched else 0.0),
+                "candidate_used": db_result.get("candidate_used", selected_ocr),
             }
 
             with self.lock:
-                # Deduplicate: If this plate is already in the list, update it in place
-                existing_idx = None
-                for idx, item in enumerate(self.detected_vehicles):
-                    if item.get("normalized_plate") == norm_plate:
-                        existing_idx = idx
-                        break
-
+                # Re-check index inside lock
+                existing_idx = next(
+                    (i for i, item in enumerate(self.detected_vehicles) if item.get("normalized_plate") == norm_plate),
+                    None,
+                )
                 if existing_idx is not None:
-                    # Update existing record with higher confidence / latest timestamp
-                    if conf * 100 >= self.detected_vehicles[existing_idx]["confidence"]:
-                        self.detected_vehicles[existing_idx] = vehicle_record
-                    else:
-                        self.detected_vehicles[existing_idx]["timestamp"] = timestamp_str
+                    self.detected_vehicles[existing_idx] = vehicle_record
                 else:
-                    # Add new verified vehicle at the top
                     self.detected_vehicles.insert(0, vehicle_record)
                     if len(self.detected_vehicles) > 100:
                         self.detected_vehicles.pop()
 
-            # Update active HUD overlay
-            self._update_overlay(bbox, resolved_plate, True, conf)
-            print(f"[VERIFIED VEHICLE PROFILED] {resolved_plate} | Score: {db_result.get('score', 1.0)}", flush=True)
+        self._update_overlay(bbox, resolved_plate, matched, conf)
+        tag = "VERIFIED VEHICLE PROFILED" if matched else "LIVE PLATE RECOGNIZED"
+        print(f"[{tag}] {resolved_plate} | Conf: {conf_pct}% | Source: {profile_source}", flush=True)
 
+        return {
+            "resolved_plate": resolved_plate,
+            "matched": matched,
+            "is_fallback": is_fallback_valid,
+            "ocr_uncertain": False,
+            "profile_source": profile_source,
+            "vehicle_details": vehicle_details,
+        }
+
+    def process_frame(self, frame_bgr):
+        """
+        Runs the exact shared YOLO detection + OCR + DB/RTO lookup pipeline on a single live webcam frame.
+        Used for browser getUserMedia frame submissions without modifying static image upload logic.
+        """
+        if frame_bgr is None or not isinstance(frame_bgr, np.ndarray) or frame_bgr.size == 0:
+            return {
+                "detected": False,
+                "bbox": None,
+                "confidence": 0.0,
+                "frame_width": 0,
+                "frame_height": 0,
+                "registration_number": None,
+                "matched": False,
+                "is_fallback": False,
+                "ocr_uncertain": False,
+                "profile_source": None,
+                "vehicle_details": None,
+                "status_message": "Invalid or empty webcam frame",
+                "detections": self.get_detections(),
+                "total": len(self.get_detections()),
+            }
+
+        h, w = frame_bgr.shape[:2]
+
+        # Skip completely black/uninitialized camera frames
+        if float(np.mean(frame_bgr)) < 2.0 and float(np.std(frame_bgr)) < 2.0:
+            return {
+                "detected": False,
+                "bbox": None,
+                "confidence": 0.0,
+                "frame_width": w,
+                "frame_height": h,
+                "registration_number": None,
+                "matched": False,
+                "is_fallback": False,
+                "ocr_uncertain": False,
+                "profile_source": None,
+                "vehicle_details": None,
+                "status_message": "Waiting for valid camera frame...",
+                "detections": self.get_detections(),
+                "total": len(self.get_detections()),
+            }
+
+        det_result = self.detector.detect(
+            frame_bgr,
+            conf_thresh=0.25,
+            enable_multiscale=True,
+            save_debug=False,
+        )
+
+        if not det_result.get("detected") or det_result.get("crop") is None:
+            return {
+                "detected": False,
+                "bbox": None,
+                "confidence": 0.0,
+                "frame_width": w,
+                "frame_height": h,
+                "registration_number": None,
+                "matched": False,
+                "is_fallback": False,
+                "ocr_uncertain": False,
+                "profile_source": None,
+                "vehicle_details": None,
+                "status_message": "No plate detected in current frame",
+                "detections": self.get_detections(),
+                "total": len(self.get_detections()),
+            }
+
+        bbox = det_result["bbox"]
+        conf = det_result["confidence"]
+        ocr_result = det_result.get("ocr_result") or perform_ocr_on_plate(det_result["crop"])
+        resolved = self._resolve_and_record_plate(det_result["crop"], bbox, conf, ocr_result)
+        all_dets = self.get_detections()
+
+        return {
+            "detected": True,
+            "bbox": bbox,
+            "confidence": conf,
+            "frame_width": w,
+            "frame_height": h,
+            "registration_number": resolved["resolved_plate"] or "PLATE DETECTED",
+            "raw_ocr": ocr_result.get("raw_ocr", ""),
+            "ocr_candidates": ocr_result.get("ocr_candidates", []),
+            "matched": resolved["matched"],
+            "is_fallback": resolved["is_fallback"],
+            "ocr_uncertain": resolved["ocr_uncertain"],
+            "profile_source": resolved["profile_source"],
+            "vehicle_details": resolved["vehicle_details"],
+            "status_message": (
+                "Plate detected — OCR uncertain"
+                if resolved["ocr_uncertain"]
+                else f"Detected {resolved['resolved_plate']}"
+            ),
+            "detections": all_dets,
+            "total": len(all_dets),
+        }
+
+    def _process_plate_ocr_async(self, plate_crop, bbox, conf):
+        """Runs OCR and Database lookup asynchronously and updates history."""
+        try:
+            ocr_result = perform_ocr_on_plate(plate_crop)
+            self._resolve_and_record_plate(plate_crop, bbox, conf, ocr_result)
         except Exception as e:
             print(f"[Error in _process_plate_ocr_async] {e}", flush=True)
 
@@ -261,14 +466,19 @@ class WebcamProcessor:
             "matched": matched,
             "timestamp": time.time()
         }
-        # Replace or append
-        self.active_overlays = [ov for ov in self.active_overlays if time.time() - ov['timestamp'] < 2.0]
-        self.active_overlays.append(overlay_item)
+        now = time.time()
+        with self.lock:
+            self.active_overlays = [ov for ov in self.active_overlays if now - ov['timestamp'] < 2.0]
+            self.active_overlays.append(overlay_item)
 
     def _draw_hud(self, img, w, h):
         """Renders futuristic cyber-HUD brackets, scanning reticles, and plate tags."""
+        with self.lock:
+            overlays = list(self.active_overlays)
+            logged_count = len(self.detected_vehicles)
+
         # 1. Draw Active Plate Overlays
-        for ov in self.active_overlays:
+        for ov in overlays:
             x1, y1, x2, y2 = ov["bbox"]
             is_matched = ov["matched"]
             box_color = (0, 255, 0) if is_matched else (0, 215, 255)  # Green if in DB, Yellow/Cyan if unknown
@@ -313,7 +523,7 @@ class WebcamProcessor:
         
         cv2.putText(img, "LIVE SCANNER", (50, 41), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2, cv2.LINE_AA)
         
-        status_text = f"FPS: {self.fps} | Logged: {len(self.detected_vehicles)}"
+        status_text = f"FPS: {self.fps} | Logged: {logged_count}"
         cv2.putText(img, status_text, (30, 63), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 215, 255), 1, cv2.LINE_AA)
 
         return img
@@ -379,6 +589,8 @@ class WebcamProcessor:
         with self.lock:
             self.detected_vehicles.clear()
             self.tracked_plates.clear()
+            self.lookup_cache.clear()
+            self.active_overlays.clear()
             return True
 
     def get_status(self):

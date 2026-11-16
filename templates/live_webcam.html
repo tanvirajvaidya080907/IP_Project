@@ -49,8 +49,51 @@
         .video-stream-img {
             width: 100%;
             height: 100%;
-            object-fit: cover;
+            object-fit: contain;
             display: block;
+        }
+
+        .detection-overlay-canvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        .camera-placeholder {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 1.5rem;
+            background: radial-gradient(circle at center, rgba(16, 33, 62, 0.45) 0%, #050B14 75%);
+            color: var(--text-muted);
+            z-index: 2;
+        }
+
+        .camera-status-strip {
+            margin-top: 0.75rem;
+            padding: 0.65rem 0.9rem;
+            border-radius: 0.5rem;
+            background: rgba(7, 17, 31, 0.7);
+            border: 1px solid rgba(34, 211, 238, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            font-size: 0.82rem;
+            color: var(--text-muted);
+        }
+
+        .camera-status-error {
+            border-color: rgba(239, 68, 68, 0.55);
+            color: #FCA5A5;
         }
 
         .live-hud-badge {
@@ -305,6 +348,20 @@
             gap: 0.3rem;
         }
 
+        .pill-fallback {
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 0.2rem 0.6rem;
+            border-radius: 9999px;
+            text-transform: uppercase;
+            background: rgba(34, 211, 238, 0.16);
+            border: 1px solid #22D3EE;
+            color: #67E8F9;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
         .card-vehicle-title {
             font-size: 1rem;
             font-weight: 700;
@@ -404,7 +461,20 @@
                     </div>
                     <div class="live-hud-fps" id="live-fps-badge">FPS: 0.0</div>
                     
-                    <img id="video-stream" class="video-stream-img" src="{{ url_for('video_feed') }}" alt="Live Camera Feed">
+                    <video id="webcam-video" class="video-stream-img" autoplay playsinline muted style="display: none;"></video>
+                    <canvas id="detection-overlay" class="detection-overlay-canvas"></canvas>
+                    <canvas id="capture-canvas" style="display: none;"></canvas>
+
+                    <div id="camera-placeholder" class="camera-placeholder">
+                        <div style="font-size: 2rem; margin-bottom: 0.5rem;">📷</div>
+                        <div id="placeholder-title" style="font-weight: 700; color: #FFFFFF; font-size: 1rem;">CAMERA OFFLINE</div>
+                        <div id="placeholder-sub" style="font-size: 0.82rem; margin-top: 0.35rem;">Click 'Start Live Webcam' to initialize AI vision feed</div>
+                    </div>
+                </div>
+
+                <div class="camera-status-strip" id="camera-status-strip">
+                    <span id="camera-status-message">Ready — click Start Live Webcam to begin</span>
+                    <span id="live-plate-status" style="font-family: 'JetBrains Mono', monospace; color: var(--secondary);">No active plate</span>
                 </div>
 
                 <div class="controls-toolbar">
@@ -422,9 +492,7 @@
                     <div style="display: flex; align-items: center; gap: 0.5rem;">
                         <label for="camera-select" style="font-size: 0.8rem; color: var(--text-muted);">Camera Source:</label>
                         <select id="camera-select" class="select-camera">
-                            <option value="0">Camera 0 (Default / USB)</option>
-                            <option value="1">Camera 1 (Secondary)</option>
-                            <option value="2">Camera 2 (External)</option>
+                            <option value="">Default Camera</option>
                         </select>
                     </div>
                 </div>
@@ -434,8 +502,8 @@
             <div class="live-feed-panel">
                 <div class="feed-header">
                     <div class="feed-header-left">
-                        <h3>Verified Vehicles</h3>
-                        <span class="feed-count-badge" id="detection-count">0 VERIFIED</span>
+                        <h3>Detected Vehicles</h3>
+                        <span class="feed-count-badge" id="detection-count">0 DETECTED</span>
                     </div>
                     <div class="feed-actions">
                         <button type="button" class="btn-feed-action" id="btn-clear-history" title="Clear log">Clear</button>
@@ -447,8 +515,8 @@
                 <div class="feed-list" id="feed-list-container">
                     <div class="empty-state" id="empty-state">
                         <div class="empty-icon">🛡️</div>
-                        <p style="font-size: 0.95rem; font-weight: 600; color: var(--text-muted);">Awaiting Verified Vehicle Detection</p>
-                        <p style="font-size: 0.8rem; margin-top: 0.35rem;">Only verified database-matched vehicles will be profiled and displayed here.</p>
+                        <p style="font-size: 0.95rem; font-weight: 600; color: var(--text-muted);">Awaiting Live Vehicle Detection</p>
+                        <p style="font-size: 0.8rem; margin-top: 0.35rem;">Detected car, scooter, and motorcycle plates will appear here via Database Match or Registration Code Lookup.</p>
                     </div>
                 </div>
             </div>
@@ -471,32 +539,421 @@
         const emptyState = document.getElementById('empty-state');
         const btnClearHistory = document.getElementById('btn-clear-history');
         const btnExportCsv = document.getElementById('btn-export-csv');
-        const videoStream = document.getElementById('video-stream');
+        const webcamVideo = document.getElementById('webcam-video');
+        const overlayCanvas = document.getElementById('detection-overlay');
+        const captureCanvas = document.getElementById('capture-canvas');
+        const cameraPlaceholder = document.getElementById('camera-placeholder');
+        const placeholderTitle = document.getElementById('placeholder-title');
+        const placeholderSub = document.getElementById('placeholder-sub');
+        const statusStrip = document.getElementById('camera-status-strip');
+        const cameraStatusMsg = document.getElementById('camera-status-message');
+        const livePlateStatus = document.getElementById('live-plate-status');
 
         let allDetections = [];
+        let lastRenderKey = '';
+        let mediaStream = null;
+        let isCameraActive = false;
+        let isProcessingFrame = false;
+        let captureIntervalId = null;
+        let activeFetchController = null;
+        let processedFrameCount = 0;
+        let fpsWindowStart = performance.now();
 
-        // Start Camera
-        btnStartCam.addEventListener('click', async () => {
-            const camIdx = cameraSelect.value;
-            btnStartCam.disabled = true;
-            btnStartCam.innerHTML = '<span>⏳</span><span>Starting...</span>';
+        function setStatusBanner(hudText, statusText, isLive = false, isError = false) {
+            liveIndicatorText.textContent = hudText;
+            cameraStatusMsg.textContent = statusText;
+            if (isError) {
+                statusStrip.classList.add('camera-status-error');
+                liveIndicatorDot.style.background = '#EF4444';
+                liveIndicatorDot.style.boxShadow = '0 0 8px #EF4444';
+            } else if (isLive) {
+                statusStrip.classList.remove('camera-status-error');
+                liveIndicatorDot.style.background = '#22D3EE';
+                liveIndicatorDot.style.boxShadow = '0 0 10px #22D3EE';
+            } else {
+                statusStrip.classList.remove('camera-status-error');
+                liveIndicatorDot.style.background = '#EF4444';
+                liveIndicatorDot.style.boxShadow = '0 0 8px #EF4444';
+            }
+        }
 
+        function clearOverlayCanvas() {
+            const ctx = overlayCanvas.getContext('2d');
+            if (ctx) {
+                ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            }
+        }
+
+        function drawDetectionOverlay(data) {
+            const rect = webcamVideo.getBoundingClientRect();
+            const cw = Math.max(1, Math.round(rect.width));
+            const ch = Math.max(1, Math.round(rect.height));
+            if (overlayCanvas.width !== cw || overlayCanvas.height !== ch) {
+                overlayCanvas.width = cw;
+                overlayCanvas.height = ch;
+            }
+
+            const ctx = overlayCanvas.getContext('2d');
+            ctx.clearRect(0, 0, cw, ch);
+
+            if (!data || !data.detected || !Array.isArray(data.bbox) || data.bbox.length !== 4) {
+                livePlateStatus.textContent = 'No plate detected in current frame';
+                livePlateStatus.style.color = 'var(--text-muted)';
+                return;
+            }
+
+            const vw = webcamVideo.videoWidth || data.frame_width || cw;
+            const vh = webcamVideo.videoHeight || data.frame_height || ch;
+            const fw = data.frame_width || vw;
+            const fh = data.frame_height || vh;
+
+            // Compute exact object-fit: contain rendered rectangle so bounding box aligns pixel-accurately
+            const videoAspect = vw / Math.max(1, vh);
+            const boxAspect = cw / Math.max(1, ch);
+            let drawW = cw;
+            let drawH = ch;
+            let offsetX = 0;
+            let offsetY = 0;
+            if (videoAspect > boxAspect) {
+                drawW = cw;
+                drawH = cw / videoAspect;
+                offsetY = (ch - drawH) / 2;
+            } else {
+                drawH = ch;
+                drawW = ch * videoAspect;
+                offsetX = (cw - drawW) / 2;
+            }
+
+            const scaleX = drawW / Math.max(1, fw);
+            const scaleY = drawH / Math.max(1, fh);
+            const x1 = offsetX + data.bbox[0] * scaleX;
+            const y1 = offsetY + data.bbox[1] * scaleY;
+            const x2 = offsetX + data.bbox[2] * scaleX;
+            const y2 = offsetY + data.bbox[3] * scaleY;
+            const bw = Math.max(2, x2 - x1);
+            const bh = Math.max(2, y2 - y1);
+
+            const isMatched = Boolean(data.matched);
+            const isUncertain = Boolean(data.ocr_uncertain);
+            const strokeColor = isMatched ? '#10B981' : (isUncertain ? '#F59E0B' : '#22D3EE');
+
+            ctx.lineWidth = 2.5;
+            ctx.strokeStyle = strokeColor;
+            ctx.strokeRect(x1, y1, bw, bh);
+
+            // Corner HUD brackets
+            const corner = Math.max(10, Math.min(bw, bh) * 0.22);
+            ctx.lineWidth = 3.5;
+            ctx.beginPath();
+            ctx.moveTo(x1, y1 + corner); ctx.lineTo(x1, y1); ctx.lineTo(x1 + corner, y1);
+            ctx.moveTo(x2 - corner, y1); ctx.lineTo(x2, y1); ctx.lineTo(x2, y1 + corner);
+            ctx.moveTo(x1, y2 - corner); ctx.lineTo(x1, y2); ctx.lineTo(x1 + corner, y2);
+            ctx.moveTo(x2 - corner, y2); ctx.lineTo(x2, y2); ctx.lineTo(x2, y2 - corner);
+            ctx.stroke();
+
+            const confPct = Math.round((data.confidence || 0) * 100);
+            const regText = isUncertain
+                ? (data.registration_number && data.registration_number !== 'PLATE DETECTED'
+                    ? `UNCERTAIN: ${data.registration_number}`
+                    : 'OCR UNCERTAIN')
+                : (data.registration_number || 'PLATE DETECTED');
+            const label = `${regText} (${confPct}%)`;
+
+            ctx.font = '700 13px "JetBrains Mono", monospace';
+            const textMetrics = ctx.measureText(label);
+            const padX = 8;
+            const labelW = textMetrics.width + padX * 2;
+            const labelH = 22;
+            const labelX = Math.max(4, Math.min(x1, cw - labelW - 4));
+            const labelY = y1 >= labelH + 6 ? y1 - labelH - 4 : Math.min(ch - labelH - 4, y2 + 4);
+
+            ctx.fillStyle = strokeColor;
+            ctx.fillRect(labelX, labelY, labelW, labelH);
+            ctx.fillStyle = '#050B14';
+            ctx.fillText(label, labelX + padX, labelY + 15);
+
+            livePlateStatus.textContent = isUncertain
+                ? `Plate detected (${confPct}%) — OCR uncertain`
+                : `${regText} (${confPct}% • ${data.profile_source || 'Detected'})`;
+            livePlateStatus.style.color = strokeColor;
+        }
+
+        async function refreshCameraList(preferredDeviceId = '') {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+                return;
+            }
             try {
-                const res = await fetch('/api/camera/start', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ camera_index: camIdx })
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoInputs = devices.filter(d => d.kind === 'videoinput');
+                const currentSelection = preferredDeviceId || cameraSelect.value;
+                cameraSelect.innerHTML = '';
+
+                if (videoInputs.length === 0) {
+                    const opt = document.createElement('option');
+                    opt.value = '';
+                    opt.textContent = 'No camera detected';
+                    cameraSelect.appendChild(opt);
+                    return;
+                }
+
+                videoInputs.forEach((dev, idx) => {
+                    const opt = document.createElement('option');
+                    opt.value = dev.deviceId || '';
+                    opt.textContent = dev.label || `Camera ${idx + 1}`;
+                    cameraSelect.appendChild(opt);
                 });
-                const data = await res.json();
-                if (data.success) {
-                    setCameraRunningUI(true);
-                } else {
-                    alert('Camera Error: ' + data.message);
-                    setCameraRunningUI(false);
+
+                if (currentSelection && Array.from(cameraSelect.options).some(o => o.value === currentSelection)) {
+                    cameraSelect.value = currentSelection;
                 }
             } catch (err) {
-                alert('Failed to connect to camera server: ' + err);
-                setCameraRunningUI(false);
+                console.warn('Could not enumerate camera devices:', err);
+            }
+        }
+
+        function releaseMediaStream() {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => {
+                    try { track.stop(); } catch (_) {}
+                });
+                mediaStream = null;
+            }
+            if (webcamVideo.srcObject) {
+                webcamVideo.srcObject = null;
+            }
+            webcamVideo.style.display = 'none';
+            cameraPlaceholder.style.display = 'flex';
+            clearOverlayCanvas();
+        }
+
+        function stopLiveCamera(statusMessage = 'Camera stopped') {
+            isCameraActive = false;
+            if (captureIntervalId !== null) {
+                clearInterval(captureIntervalId);
+                captureIntervalId = null;
+            }
+            if (activeFetchController) {
+                try { activeFetchController.abort(); } catch (_) {}
+                activeFetchController = null;
+            }
+            isProcessingFrame = false;
+
+            releaseMediaStream();
+            btnStartCam.style.display = 'inline-flex';
+            btnStopCam.style.display = 'none';
+            cameraSelect.disabled = false;
+            liveFpsBadge.textContent = 'FPS: 0.0';
+            placeholderTitle.textContent = 'CAMERA OFFLINE';
+            placeholderSub.textContent = "Click 'Start Live Webcam' to initialize AI vision feed";
+            livePlateStatus.textContent = 'No active plate';
+            livePlateStatus.style.color = 'var(--text-muted)';
+            setStatusBanner('STANDBY', statusMessage, false, false);
+        }
+
+        function isCanvasFrameNonEmpty(ctx, w, h) {
+            try {
+                const stepX = Math.max(1, Math.floor(w / 5));
+                const stepY = Math.max(1, Math.floor(h / 5));
+                for (let py = Math.floor(stepY / 2); py < h; py += stepY) {
+                    for (let px = Math.floor(stepX / 2); px < w; px += stepX) {
+                        const pxData = ctx.getImageData(px, py, 1, 1).data;
+                        if (pxData[0] > 4 || pxData[1] > 4 || pxData[2] > 4) {
+                            return true;
+                        }
+                    }
+                }
+            } catch (_) {
+                return true;
+            }
+            return false;
+        }
+
+        async function captureAndProcessFrame() {
+            if (!isCameraActive || isProcessingFrame || !mediaStream) {
+                return;
+            }
+            if (webcamVideo.readyState < 2 || webcamVideo.videoWidth <= 0 || webcamVideo.videoHeight <= 0) {
+                return;
+            }
+
+            isProcessingFrame = true;
+            setStatusBanner('PROCESSING', 'Processing frames...', true, false);
+
+            try {
+                const rawW = webcamVideo.videoWidth;
+                const rawH = webcamVideo.videoHeight;
+                const maxCapW = 1280;
+                const scale = rawW > maxCapW ? (maxCapW / rawW) : 1.0;
+                const capW = Math.max(1, Math.round(rawW * scale));
+                const capH = Math.max(1, Math.round(rawH * scale));
+
+                captureCanvas.width = capW;
+                captureCanvas.height = capH;
+                const capCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
+                capCtx.drawImage(webcamVideo, 0, 0, capW, capH);
+
+                if (!isCanvasFrameNonEmpty(capCtx, capW, capH)) {
+                    setStatusBanner('CAMERA READY', 'Waiting for illuminated camera frame...', true, false);
+                    return;
+                }
+
+                const blob = await new Promise(resolve => captureCanvas.toBlob(resolve, 'image/jpeg', 0.9));
+                if (!blob || blob.size === 0 || !isCameraActive) {
+                    return;
+                }
+
+                const formData = new FormData();
+                formData.append('frame', blob, 'webcam_frame.jpg');
+
+                activeFetchController = new AbortController();
+                const res = await fetch('/api/camera/process_frame', {
+                    method: 'POST',
+                    body: formData,
+                    signal: activeFetchController.signal
+                });
+
+                if (!res.ok) {
+                    throw new Error(`Server returned HTTP ${res.status}`);
+                }
+
+                const data = await res.json();
+                if (!isCameraActive) {
+                    return;
+                }
+
+                processedFrameCount += 1;
+                const elapsedSec = (performance.now() - fpsWindowStart) / 1000.0;
+                if (elapsedSec >= 1.0) {
+                    const procFps = processedFrameCount / elapsedSec;
+                    liveFpsBadge.textContent = `FPS: ${procFps.toFixed(1)}`;
+                    processedFrameCount = 0;
+                    fpsWindowStart = performance.now();
+                }
+
+                if (data.success) {
+                    drawDetectionOverlay(data);
+                    if (Array.isArray(data.detections)) {
+                        syncDetectionsList(data.detections);
+                    }
+                    setStatusBanner('LIVE ACTIVE', 'Processing frames...', true, false);
+                } else {
+                    clearOverlayCanvas();
+                    setStatusBanner('LIVE ACTIVE', data.error || 'Frame processing error — retrying', true, true);
+                }
+            } catch (err) {
+                if (err && err.name === 'AbortError') {
+                    return;
+                }
+                console.error('Live frame processing error:', err);
+                if (isCameraActive) {
+                    setStatusBanner('LIVE ACTIVE', 'Temporary frame request failure — continuing...', true, false);
+                }
+            } finally {
+                activeFetchController = null;
+                isProcessingFrame = false;
+            }
+        }
+
+        // Start Camera using Browser getUserMedia
+        btnStartCam.addEventListener('click', async () => {
+            if (isCameraActive) {
+                return;
+            }
+
+            btnStartCam.disabled = true;
+            btnStartCam.innerHTML = '<span>⏳</span><span>Initializing...</span>';
+            setStatusBanner('INITIALIZING', 'Initializing camera...', false, false);
+            placeholderTitle.textContent = 'INITIALIZING CAMERA...';
+            placeholderSub.textContent = 'Requesting browser camera permission';
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                setStatusBanner('UNAVAILABLE', 'Camera unavailable (browser requires localhost or HTTPS)', false, true);
+                placeholderTitle.textContent = 'CAMERA UNAVAILABLE';
+                placeholderSub.textContent = 'Use http://127.0.0.1:5000, http://localhost:5000, or HTTPS to allow camera access.';
+                btnStartCam.disabled = false;
+                btnStartCam.innerHTML = '<span>▶</span><span>Start Live Webcam</span>';
+                return;
+            }
+
+            const selectedDeviceId = cameraSelect.value;
+            let constraints = {
+                video: selectedDeviceId
+                    ? { deviceId: { exact: selectedDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+                    : { width: { ideal: 1280 }, height: { ideal: 720 } },
+                audio: false
+            };
+
+            try {
+                try {
+                    mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+                } catch (constraintErr) {
+                    if (constraintErr.name === 'OverconstrainedError' || constraintErr.name === 'ConstraintNotSatisfiedError') {
+                        mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                    } else {
+                        throw constraintErr;
+                    }
+                }
+
+                webcamVideo.srcObject = mediaStream;
+                await new Promise((resolve, reject) => {
+                    const timeoutId = setTimeout(() => reject(new Error('Camera stream metadata timeout')), 8000);
+                    webcamVideo.onloadedmetadata = () => {
+                        clearTimeout(timeoutId);
+                        resolve();
+                    };
+                });
+
+                await webcamVideo.play();
+                if (webcamVideo.videoWidth <= 0 || webcamVideo.videoHeight <= 0) {
+                    throw new Error('Camera stream produced empty video dimensions');
+                }
+
+                // Listen for physical camera disconnect / track ending
+                mediaStream.getVideoTracks().forEach(track => {
+                    track.addEventListener('ended', () => {
+                        if (isCameraActive) {
+                            stopLiveCamera('Camera unavailable (stream ended)');
+                        }
+                    });
+                });
+
+                const activeTrack = mediaStream.getVideoTracks()[0];
+                const activeDeviceId = activeTrack && activeTrack.getSettings ? (activeTrack.getSettings().deviceId || '') : '';
+                await refreshCameraList(activeDeviceId);
+
+                isCameraActive = true;
+                processedFrameCount = 0;
+                fpsWindowStart = performance.now();
+
+                cameraPlaceholder.style.display = 'none';
+                webcamVideo.style.display = 'block';
+                btnStartCam.style.display = 'none';
+                btnStopCam.style.display = 'inline-flex';
+                cameraSelect.disabled = true;
+
+                setStatusBanner('CAMERA READY', 'Camera ready — starting AI plate scanner', true, false);
+                captureAndProcessFrame();
+                captureIntervalId = setInterval(captureAndProcessFrame, 350);
+            } catch (err) {
+                console.error('Camera initialization failed:', err);
+                releaseMediaStream();
+
+                let hudMsg = 'UNAVAILABLE';
+                let errMsg = 'Camera unavailable';
+                if (err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')) {
+                    hudMsg = 'PERMISSION DENIED';
+                    errMsg = 'Camera permission denied';
+                } else if (err && (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError')) {
+                    hudMsg = 'NO CAMERA';
+                    errMsg = 'No camera detected';
+                } else if (err && (err.name === 'NotReadableError' || err.name === 'TrackStartError')) {
+                    hudMsg = 'CAMERA BUSY';
+                    errMsg = 'Camera unavailable (in use by another application)';
+                }
+
+                placeholderTitle.textContent = hudMsg;
+                placeholderSub.textContent = errMsg;
+                setStatusBanner(hudMsg, errMsg, false, true);
             } finally {
                 btnStartCam.disabled = false;
                 btnStartCam.innerHTML = '<span>▶</span><span>Start Live Webcam</span>';
@@ -504,55 +961,33 @@
         });
 
         // Stop Camera
-        btnStopCam.addEventListener('click', async () => {
-            try {
-                await fetch('/api/camera/stop', { method: 'POST' });
-                setCameraRunningUI(false);
-            } catch (err) {
-                console.error('Error stopping camera:', err);
-            }
+        btnStopCam.addEventListener('click', () => {
+            stopLiveCamera('Camera stopped');
         });
 
-        function setCameraRunningUI(isRunning) {
-            if (isRunning) {
-                btnStartCam.style.display = 'none';
-                btnStopCam.style.display = 'inline-flex';
-                cameraSelect.disabled = true;
-                liveIndicatorDot.style.background = '#22D3EE';
-                liveIndicatorDot.style.boxShadow = '0 0 10px #22D3EE';
-                liveIndicatorText.textContent = 'LIVE FEED ACTIVE';
-                videoStream.src = "{{ url_for('video_feed') }}?t=" + new Date().getTime();
-            } else {
-                btnStartCam.style.display = 'inline-flex';
-                btnStopCam.style.display = 'none';
-                cameraSelect.disabled = false;
-                liveIndicatorDot.style.background = '#EF4444';
-                liveIndicatorDot.style.boxShadow = '0 0 8px #EF4444';
-                liveIndicatorText.textContent = 'STANDBY';
-                liveFpsBadge.textContent = 'FPS: 0.0';
+        window.addEventListener('beforeunload', () => {
+            releaseMediaStream();
+        });
+
+        function syncDetectionsList(detections) {
+            const key = detections.map(d => `${d.normalized_plate}:${d.confidence}:${d.timestamp}:${d.matched}`).join('|');
+            if (key === lastRenderKey) {
+                return;
             }
+            lastRenderKey = key;
+            allDetections = detections;
+            detectionCountBadge.textContent = `${allDetections.length} DETECTED`;
+            renderDetections(allDetections);
         }
 
-        // Poll for Status and Live Detections
-        async function pollDetections() {
+        // Load existing session detections initially
+        async function loadInitialDetections() {
             try {
-                // 1. Status Poll
-                const statusRes = await fetch('/api/camera/status');
-                const statusData = await statusRes.json();
-                if (statusData.is_running) {
-                    liveFpsBadge.textContent = `FPS: ${statusData.fps.toFixed(1)}`;
-                }
-
-                // 2. Verified Detections Poll
                 const detRes = await fetch('/api/camera/detections');
                 const detData = await detRes.json();
-                
-                allDetections = detData.detections || [];
-                detectionCountBadge.textContent = `${allDetections.length} VERIFIED`;
-
-                renderDetections(allDetections);
+                syncDetectionsList(detData.detections || []);
             } catch (err) {
-                console.error('Polling error:', err);
+                console.error('Initial detections fetch error:', err);
             }
         }
 
@@ -565,8 +1000,6 @@
             }
 
             emptyState.style.display = 'none';
-
-            // Rebuild/sync the feed list cleanly
             feedListContainer.innerHTML = '';
             detections.forEach(item => {
                 const card = createVehicleCard(item);
@@ -574,37 +1007,54 @@
             });
         }
 
+        function escapeHtml(val) {
+            return String(val ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         function createVehicleCard(item) {
             const card = document.createElement('div');
             card.className = 'vehicle-live-card';
-            card.id = `card-${item.normalized_plate}`;
+            card.id = `card-${escapeHtml(item.normalized_plate)}`;
 
             const v = item.vehicle_details || {};
-            const fuel = v.fuel_type || 'Fuel';
-            const state = v.state_name ? `${v.state_name}` : 'India';
-            const rto = v.rto_code ? `(${v.rto_code} RTO)` : '';
-            const regDate = v.registration_date ? `Reg: ${v.registration_date}` : '';
+            const fuel = escapeHtml(v.fuel_type || 'Not Available');
+            const state = escapeHtml(v.state_name || 'Not Available');
+            const rto = escapeHtml(v.rto_code || 'Not Available');
+            const regDate = escapeHtml(v.registration_date || 'Not Available');
+            const regNum = escapeHtml(item.registration_number);
+            const cropUrl = escapeHtml(item.crop_url);
+            const confStr = escapeHtml(item.confidence);
+            const tsStr = escapeHtml(item.timestamp);
+
+            const badgeHtml = item.matched
+                ? '<span class="pill-verified">✓ VERIFIED IN DB</span>'
+                : `<span class="pill-fallback">📋 ${escapeHtml(item.profile_source || 'REGISTRATION LOOKUP')}</span>`;
 
             card.innerHTML = `
-                <img class="card-crop-thumb" src="${item.crop_url}" alt="Crop" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%2265%22><rect width=%22100%25%22 height=%22100%25%22 fill=%22%23112233%22/><text x=%2250%25%22 y=%2250%25%22 fill=%22%23667788%22 font-size=%2210%22 text-anchor=%22middle%22 dominant-baseline=%22middle%22>Plate Crop</text></svg>'">
+                <img class="card-crop-thumb" src="${cropUrl}" alt="Crop" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%2265%22><rect width=%22100%25%22 height=%22100%25%22 fill=%22%23112233%22/><text x=%2250%25%22 y=%2250%25%22 fill=%22%23667788%22 font-size=%2210%22 text-anchor=%22middle%22 dominant-baseline=%22middle%22>Plate Crop</text></svg>'">
                 <div class="card-info">
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
-                        <span class="card-plate-tag">${item.registration_number}</span>
-                        <span class="pill-verified">✓ VERIFIED IN DB</span>
+                        <span class="card-plate-tag">${regNum}</span>
+                        ${badgeHtml}
                     </div>
 
                     <div class="card-details-grid" style="margin-top: 0.4rem;">
                         <div class="card-detail-item">
-                            <span>📍 <strong>Location:</strong> ${state} ${rto}</span>
+                            <span>📍 <strong>State:</strong> ${state} &nbsp;|&nbsp; <strong>RTO:</strong> ${rto}</span>
                         </div>
                         <div class="card-detail-item">
-                            <span>⛽ <strong>Fuel:</strong> ${fuel} &nbsp;|&nbsp; 🗓 <strong>${regDate}</strong></span>
+                            <span>⛽ <strong>Fuel:</strong> ${fuel} &nbsp;|&nbsp; 🗓 <strong>Reg:</strong> ${regDate}</span>
                         </div>
                     </div>
 
                     <div class="card-footer-meta">
-                        <span style="color: #34D399; font-weight: 700;">Conf: ${item.confidence}%</span>
-                        <span>⏱ ${item.timestamp}</span>
+                        <span style="color: ${item.matched ? '#34D399' : '#22D3EE'}; font-weight: 700;">Conf: ${confStr}%</span>
+                        <span>⏱ ${tsStr}</span>
                     </div>
                 </div>
             `;
@@ -613,20 +1063,21 @@
 
         // Clear History
         btnClearHistory.addEventListener('click', async () => {
-            if (confirm('Clear verified live detection logs for this session?')) {
+            if (confirm('Clear live detection logs for this session?')) {
                 await fetch('/api/camera/clear', { method: 'POST' });
+                lastRenderKey = '__cleared__';
                 allDetections = [];
                 feedListContainer.innerHTML = '';
                 feedListContainer.appendChild(emptyState);
                 emptyState.style.display = 'block';
-                detectionCountBadge.textContent = '0 VERIFIED';
+                detectionCountBadge.textContent = '0 DETECTED';
             }
         });
 
         // Export CSV
         btnExportCsv.addEventListener('click', () => {
             if (allDetections.length === 0) {
-                alert('No verified detections to export yet.');
+                alert('No detections to export yet.');
                 return;
             }
 
@@ -635,13 +1086,14 @@
 
             allDetections.forEach(d => {
                 const v = d.vehicle_details || {};
+                const statusLabel = d.matched ? "DATABASE VERIFIED" : (d.profile_source || "REGISTRATION CODE LOOKUP");
                 const row = [
                     `"${d.registration_number}"`,
-                    `"DATABASE VERIFIED"`,
-                    `"${v.fuel_type || 'N/A'}"`,
-                    `"${v.state_name || 'N/A'}"`,
-                    `"${v.rto_code || 'N/A'}"`,
-                    `"${v.registration_date || 'N/A'}"`,
+                    `"${statusLabel}"`,
+                    `"${v.fuel_type || 'Not Available'}"`,
+                    `"${v.state_name || 'Not Available'}"`,
+                    `"${v.rto_code || 'Not Available'}"`,
+                    `"${v.registration_date || 'Not Available'}"`,
                     `"${d.confidence}%"`,
                     `"${d.timestamp}"`,
                     `"${d.date}"`
@@ -652,15 +1104,14 @@
             const encodedUri = encodeURI(csvContent);
             const link = document.createElement("a");
             link.setAttribute("href", encodedUri);
-            link.setAttribute("download", `verified_vehicles_${new Date().toISOString().slice(0,10)}.csv`);
+            link.setAttribute("download", `detected_vehicles_${new Date().toISOString().slice(0,10)}.csv`);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
         });
 
-        // Start polling every 1 second
-        setInterval(pollDetections, 1000);
-        pollDetections();
+        refreshCameraList();
+        loadInitialDetections();
     </script>
 </body>
 </html>

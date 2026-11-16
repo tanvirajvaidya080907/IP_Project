@@ -1,7 +1,9 @@
 import os
 import time
 import uuid
+import base64
 import cv2
+import numpy as np
 from werkzeug.utils import secure_filename
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory, Response, jsonify
 
@@ -139,6 +141,37 @@ def camera_clear():
         "success": True,
         "message": "Detection history cleared successfully."
     })
+
+@app.route('/api/camera/process_frame', methods=['POST'])
+def process_webcam_frame():
+    """Decodes a live webcam frame and runs the shared YOLO + OCR + DB/RTO pipeline."""
+    try:
+        raw_bytes = None
+        if 'frame' in request.files:
+            raw_bytes = request.files['frame'].read()
+        elif 'image' in request.files:
+            raw_bytes = request.files['image'].read()
+        else:
+            payload = request.get_json(silent=True) or {}
+            img_data = payload.get('image') or payload.get('frame')
+            if isinstance(img_data, str) and img_data.strip():
+                if ',' in img_data:
+                    img_data = img_data.split(',', 1)[1]
+                raw_bytes = base64.b64decode(img_data)
+
+        if not raw_bytes:
+            return jsonify({"success": False, "error": "Empty webcam frame payload."}), 400
+
+        np_buf = np.frombuffer(raw_bytes, np.uint8)
+        frame_bgr = cv2.imdecode(np_buf, cv2.IMREAD_COLOR)
+        if frame_bgr is None or frame_bgr.size == 0:
+            return jsonify({"success": False, "error": "Could not decode webcam frame image."}), 400
+
+        result = webcam_processor.process_frame(frame_bgr)
+        result["success"] = True
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Frame processing error: {str(e)}"}), 500
 
 # =========================================================================
 # STATIC IMAGE ANALYSIS

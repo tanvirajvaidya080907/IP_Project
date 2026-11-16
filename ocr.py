@@ -105,10 +105,15 @@ def generate_preprocessing_variants(crop_bgr):
     gray = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY) if len(crop_bgr.shape) == 3 else crop_bgr.copy()
     variants["gray"] = gray
     
-    # 3. Upscaled
-    scale = max(1.5, 90.0 / float(h)) if h > 0 else 1.5
-    new_w, new_h = int(w * scale), int(h * scale)
-    upscaled = cv2.resize(gray, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+    # 3. Scale normalization: upscale small crops, safely downscale oversized close-up crops
+    if h > 220 or w > 680:
+        scale = min(180.0 / float(max(1, h)), 640.0 / float(max(1, w)))
+        interp = cv2.INTER_AREA
+    else:
+        scale = max(1.5, 90.0 / float(h)) if h > 0 else 1.5
+        interp = cv2.INTER_CUBIC
+    new_w, new_h = max(1, int(w * scale)), max(1, int(h * scale))
+    upscaled = cv2.resize(gray, (new_w, new_h), interpolation=interp)
     variants["upscaled"] = upscaled
     
     # 4. Bilateral filter (edge-preserving smoothing)
@@ -159,9 +164,9 @@ def apply_indian_plate_corrections(text):
     if m_lead:
         candidates.add(m_lead.group(1))
     
-    # State prefix optical confusions (e.g. W<->M, K<->M, or second char A,E,N<->H)
+    # State prefix optical confusions (e.g. W<->M, K<->M, H<->M, or second char A,E,N<->H)
     for t in list(candidates):
-        if t.startswith(("WH", "KH", "IH")):
+        if t.startswith(("WH", "KH", "IH", "HH")):
             candidates.add("MH" + t[2:])
         elif t.startswith(("MA", "ME", "MN", "MK", "MW")) and len(t) >= 6:
             candidates.add("MH" + t[2:])
@@ -233,6 +238,15 @@ def apply_indian_plate_corrections(text):
                 c3 = 'GJ' + cur_text[1:]
                 candidates.update(apply_indian_plate_corrections(c3))
 
+        # 8-character plate: [State 2][RTO 2][Number 4] (e.g. HP896786)
+        elif len(cur_text) == 8:
+            c8 = list(cur_text)
+            for i in (0, 1):
+                if c8[i] in DIGIT_TO_LETTER: c8[i] = DIGIT_TO_LETTER[c8[i]]
+            for i in (2, 3, 4, 5, 6, 7):
+                if c8[i] in LETTER_TO_DIGIT: c8[i] = LETTER_TO_DIGIT[c8[i]]
+            candidates.add("".join(c8))
+
         # General trailing 4 digits correction
         if len(cur_text) >= 6:
             c = list(cur_text)
@@ -245,11 +259,11 @@ def apply_indian_plate_corrections(text):
     # Second pass for state prefix on all generated candidates
     extra = set()
     for cand in candidates:
-        if cand.startswith("WH") or cand.startswith("KH") or cand.startswith("IH"):
+        if cand.startswith(("WH", "KH", "IH", "HH")):
             extra.add("MH" + cand[2:])
     candidates.update(extra)
     
-    return list(candidates)
+    return sorted(candidates)
 
 def evaluate_plate_structure(text):
     """Scores how closely text matches the standard Indian plate format."""
@@ -267,6 +281,8 @@ def evaluate_plate_structure(text):
         score += 0.50  # Standard 9-char plate (e.g. MH61A7906, MH12FU1014)
     elif re.match(r'^[A-Z]{2}[0-9]{1}[A-Z]{2}[0-9]{4}$', text):
         score += 0.45  # Standard single-digit RTO (e.g. DL8CN6308)
+    elif re.match(r'^[A-Z]{2}[0-9]{2}[0-9]{4}$', text):
+        score += 0.40  # No-series 8-char plate (e.g. HP896786)
     elif re.match(r'^[A-Z]{2}[0-9]{1,2}[A-Z]{1,3}[0-9]{1,4}$', text):
         score += 0.35
     elif 8 <= length <= 10:
@@ -374,45 +390,63 @@ def perform_ocr_on_plate(plate_crop_bgr):
 
     # Stage 2: Dedicated Two-Line Plate Recognition (for square / scooter / motorcycle plates)
     if ar < 2.5:
-        top_band = plate_crop_bgr[:int(h * 0.55), :]
-        bot_band = plate_crop_bgr[int(h * 0.42):, :]
-        top_cands = set()
-        bot_cands = set()
-        
-        for sub, cset, is_top in [(top_band, top_cands, True), (bot_band, bot_cands, False)]:
-            sub_vars = [sub]
-            if w > 40:
-                # Also try with left IND strip excluded
-                sub_vars.append(sub[:, int(w * 0.12):])
-            for s_img in sub_vars:
-                g = cv2.cvtColor(s_img, cv2.COLOR_BGR2GRAY) if len(s_img.shape) == 3 else s_img
-                scale = max(1.5, 90.0 / float(s_img.shape[0]))
-                up = cv2.resize(g, (int(s_img.shape[1] * scale), int(s_img.shape[0] * scale)), interpolation=cv2.INTER_CUBIC)
-                cl = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4)).apply(up)
-                _, ot = cv2.threshold(cl, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-                for proc in [up, cl, ot]:
-                    for psm in [6, 7, 8]:
-                        try:
-                            txt = pytesseract.image_to_string(proc, config=f"--oem 3 --psm {psm} -c tessedit_char_whitelist={whitelist}")
-                            c_txt = clean_ocr_text(txt)
-                            if c_txt and 2 <= len(c_txt) <= 8:
-                                cset.add(c_txt)
-                                if is_top:
-                                    t_clean = re.sub(r'([A-Z0-9]+)[1IL]$', r'\1', c_txt)
-                                    if t_clean and len(t_clean) >= 2:
-                                        cset.add(t_clean)
-                                else:
-                                    b_clean = re.sub(r'^[1IL]([A-Z][0-9]+)$', r'\1', c_txt)
-                                    if b_clean:
-                                        cset.add(b_clean)
-                        except Exception:
-                            continue
-                            
-        # Combine top (Line 1) and bottom (Line 2) in proper order
-        for tc in top_cands:
-            for bc in bot_cands:
-                combo = tc + bc
-                add_candidate(combo)
+        def run_two_line_split(crop_img, left_fracs=(0.0, 0.12)):
+            ch_l, cw_l = crop_img.shape[:2]
+            top_band = crop_img[:int(ch_l * 0.55), :]
+            bot_band = crop_img[int(ch_l * 0.42):, :]
+            top_cands = set()
+            bot_cands = set()
+
+            for sub, cset, is_top in [(top_band, top_cands, True), (bot_band, bot_cands, False)]:
+                sub_vars = []
+                for lf in left_fracs:
+                    if lf == 0.0 or cw_l > 40:
+                        sub_vars.append(sub[:, int(cw_l * lf):] if lf > 0.0 else sub)
+                for s_img in sub_vars:
+                    sh, sw = s_img.shape[:2]
+                    if sh < 4 or sw < 4:
+                        continue
+                    g = cv2.cvtColor(s_img, cv2.COLOR_BGR2GRAY) if len(s_img.shape) == 3 else s_img
+                    if sh > 160 or sw > 480:
+                        sc = min(110.0 / float(sh), 420.0 / float(sw))
+                        interp = cv2.INTER_AREA
+                    else:
+                        sc = max(1.5, 90.0 / float(sh))
+                        interp = cv2.INTER_CUBIC
+                    up = cv2.resize(g, (max(1, int(sw * sc)), max(1, int(sh * sc))), interpolation=interp)
+                    cl = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4, 4)).apply(up)
+                    _, ot = cv2.threshold(cl, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                    for proc in [up, cl, ot]:
+                        for psm in [6, 7, 8]:
+                            try:
+                                txt = pytesseract.image_to_string(proc, config=f"--oem 3 --psm {psm} -c tessedit_char_whitelist={whitelist}")
+                                c_txt = clean_ocr_text(txt)
+                                if c_txt and 2 <= len(c_txt) <= 8:
+                                    cset.add(c_txt)
+                                    if is_top:
+                                        t_clean = re.sub(r'([A-Z0-9]+)[1IL]$', r'\1', c_txt)
+                                        if t_clean and len(t_clean) >= 2:
+                                            cset.add(t_clean)
+                                    else:
+                                        b_clean = re.sub(r'^[1IL]([A-Z][0-9]+)$', r'\1', c_txt)
+                                        if b_clean:
+                                            cset.add(b_clean)
+                            except Exception:
+                                continue
+
+            for tc in sorted(top_cands):
+                for bc in sorted(bot_cands):
+                    add_candidate(tc + bc)
+
+        run_two_line_split(plate_crop_bgr, left_fracs=(0.0, 0.12))
+
+        # Deskew & decorative-margin fallback only if straight pass found no high-structure candidate
+        best_struct_so_far = max((evaluate_plate_structure(c) for c in candidate_scores), default=0.0)
+        if best_struct_so_far < 0.98 and h >= 20 and w >= 20:
+            for ang in (-10, -5, 5, 10):
+                M = cv2.getRotationMatrix2D((w / 2.0, h / 2.0), ang, 1.0)
+                rot = cv2.warpAffine(plate_crop_bgr, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+                run_two_line_split(rot, left_fracs=(0.0, 0.18))
 
     if not candidate_scores:
         return {
@@ -423,8 +457,12 @@ def perform_ocr_on_plate(plate_crop_bgr):
             "error": "No alphanumeric characters recognized by OCR."
         }
 
-    # Rank candidates by total score
-    ranked = sorted(candidate_scores.items(), key=lambda x: x[1], reverse=True)
+    # Rank candidates by total score, breaking exact ties deterministically by full vote count
+    ranked = sorted(
+        candidate_scores.items(),
+        key=lambda x: (x[1], candidate_counts.get(x[0], 0)),
+        reverse=True
+    )
     ocr_candidates = [item[0] for item in ranked]
     best_candidate = ocr_candidates[0]
     best_score = round(min(1.0, ranked[0][1]), 4)
