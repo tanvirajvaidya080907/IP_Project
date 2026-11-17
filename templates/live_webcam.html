@@ -782,7 +782,7 @@
             try {
                 const rawW = webcamVideo.videoWidth;
                 const rawH = webcamVideo.videoHeight;
-                const maxCapW = 1280;
+                const maxCapW = 640;
                 const scale = rawW > maxCapW ? (maxCapW / rawW) : 1.0;
                 const capW = Math.max(1, Math.round(rawW * scale));
                 const capH = Math.max(1, Math.round(rawH * scale));
@@ -792,15 +792,19 @@
                 const capCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
                 capCtx.drawImage(webcamVideo, 0, 0, capW, capH);
 
+                console.log('[WEBCAM] Frame captured: SUCCESS');
+                console.log(`[WEBCAM] Frame dimensions: ${capW} x ${capH}`);
+
                 if (!isCanvasFrameNonEmpty(capCtx, capW, capH)) {
                     setStatusBanner('CAMERA READY', 'Waiting for illuminated camera frame...', true, false);
                     return;
                 }
 
-                const blob = await new Promise(resolve => captureCanvas.toBlob(resolve, 'image/jpeg', 0.9));
+                const blob = await new Promise(resolve => captureCanvas.toBlob(resolve, 'image/jpeg', 0.85));
                 if (!blob || blob.size === 0 || !isCameraActive) {
                     return;
                 }
+                console.log('[WEBCAM] Frame encoding: SUCCESS');
 
                 const formData = new FormData();
                 formData.append('frame', blob, 'webcam_frame.jpg');
@@ -817,6 +821,7 @@
                 }
 
                 const data = await res.json();
+                console.log('[WEBCAM] Frontend response received: SUCCESS');
                 if (!isCameraActive) {
                     return;
                 }
@@ -907,6 +912,9 @@
                 if (webcamVideo.videoWidth <= 0 || webcamVideo.videoHeight <= 0) {
                     throw new Error('Camera stream produced empty video dimensions');
                 }
+
+                console.log('[WEBCAM] Camera initialized: SUCCESS');
+                console.log('[WEBCAM] Video stream active: YES');
 
                 // Listen for physical camera disconnect / track ending
                 mediaStream.getVideoTracks().forEach(track => {

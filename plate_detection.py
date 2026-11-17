@@ -303,13 +303,13 @@ class PlateDetector:
         reject_final = False
         if bv["corner_clip"] and not rto_ok and best_box["confidence"] < 0.75:
             reject_final = True
-        elif bv["touches_edge"] and not rto_ok and best_box["confidence"] < 0.45:
+        elif bv["touches_edge"] and not rto_ok and best_box["confidence"] < 0.40:
             reject_final = True
-        elif not rto_ok and struct_val < 0.65 and best_box["confidence"] < 0.42:
+        elif not rto_ok and struct_val < 0.65 and best_box["confidence"] < 0.30:
             reject_final = True
         elif bv["red_ratio"] >= 0.30 and not rto_ok:
             reject_final = True
-        elif bv["edge_density"] < 0.16 and best_box["confidence"] < 0.65 and struct_val < 0.80:
+        elif bv["edge_density"] < 0.11 and best_box["confidence"] < 0.65 and struct_val < 0.80:
             reject_final = True
 
         if reject_final:

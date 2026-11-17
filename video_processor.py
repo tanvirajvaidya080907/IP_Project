@@ -268,7 +268,7 @@ class WebcamProcessor:
             profile_source = "OCR Recognized" if is_plausible else "OCR Uncertain"
 
         norm_plate = normalize_registration(resolved_plate)
-        if len(norm_plate) < 4 or ocr_uncertain:
+        if len(norm_plate) < 4:
             self._update_overlay(bbox, resolved_plate or "PLATE DETECTED", False, conf)
             return {
                 "resolved_plate": resolved_plate,
@@ -347,7 +347,7 @@ class WebcamProcessor:
             "resolved_plate": resolved_plate,
             "matched": matched,
             "is_fallback": is_fallback_valid,
-            "ocr_uncertain": False,
+            "ocr_uncertain": ocr_uncertain,
             "profile_source": profile_source,
             "vehicle_details": vehicle_details,
         }
@@ -358,6 +358,7 @@ class WebcamProcessor:
         Used for browser getUserMedia frame submissions without modifying static image upload logic.
         """
         if frame_bgr is None or not isinstance(frame_bgr, np.ndarray) or frame_bgr.size == 0:
+            print("[WEBCAM] OpenCV decoding: FAILED (Empty or invalid frame)", flush=True)
             return {
                 "detected": False,
                 "bbox": None,
@@ -376,9 +377,11 @@ class WebcamProcessor:
             }
 
         h, w = frame_bgr.shape[:2]
+        print(f"[WEBCAM] OpenCV decoding: SUCCESS (Dimensions: {w}x{h})", flush=True)
 
         # Skip completely black/uninitialized camera frames
         if float(np.mean(frame_bgr)) < 2.0 and float(np.std(frame_bgr)) < 2.0:
+            print("[WEBCAM] Frame status: Black or unilluminated frame — waiting", flush=True)
             return {
                 "detected": False,
                 "bbox": None,
@@ -396,14 +399,31 @@ class WebcamProcessor:
                 "total": len(self.get_detections()),
             }
 
+        print("[WEBCAM] YOLO inference started: YES", flush=True)
+
+        # Fast native pass first for sub-second responsiveness on live streams
         det_result = self.detector.detect(
             frame_bgr,
             conf_thresh=0.25,
-            enable_multiscale=True,
+            enable_multiscale=False,
             save_debug=False,
         )
 
+        # If native pass produces no detection on this live frame, escalate to multi-scale
+        if not det_result.get("detected"):
+            det_result = self.detector.detect(
+                frame_bgr,
+                conf_thresh=0.25,
+                enable_multiscale=True,
+                save_debug=False,
+            )
+
+        total_dets = det_result.get("total_detections", 0)
+        print(f"[WEBCAM] YOLO detections: {total_dets}", flush=True)
+
         if not det_result.get("detected") or det_result.get("crop") is None:
+            print("[WEBCAM] Plate crop generated: NONE", flush=True)
+            print("[WEBCAM] OCR result: NONE", flush=True)
             return {
                 "detected": False,
                 "bbox": None,
@@ -421,11 +441,15 @@ class WebcamProcessor:
                 "total": len(self.get_detections()),
             }
 
+        print("[WEBCAM] Plate crop generated: SUCCESS", flush=True)
         bbox = det_result["bbox"]
         conf = det_result["confidence"]
         ocr_result = det_result.get("ocr_result") or perform_ocr_on_plate(det_result["crop"])
         resolved = self._resolve_and_record_plate(det_result["crop"], bbox, conf, ocr_result)
         all_dets = self.get_detections()
+
+        reg_display = resolved["resolved_plate"] or "PLATE DETECTED"
+        print(f"[WEBCAM] OCR result: {reg_display}", flush=True)
 
         return {
             "detected": True,
@@ -433,7 +457,7 @@ class WebcamProcessor:
             "confidence": conf,
             "frame_width": w,
             "frame_height": h,
-            "registration_number": resolved["resolved_plate"] or "PLATE DETECTED",
+            "registration_number": reg_display,
             "raw_ocr": ocr_result.get("raw_ocr", ""),
             "ocr_candidates": ocr_result.get("ocr_candidates", []),
             "matched": resolved["matched"],
@@ -444,7 +468,7 @@ class WebcamProcessor:
             "status_message": (
                 "Plate detected — OCR uncertain"
                 if resolved["ocr_uncertain"]
-                else f"Detected {resolved['resolved_plate']}"
+                else f"Detected {reg_display}"
             ),
             "detections": all_dets,
             "total": len(all_dets),

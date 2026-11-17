@@ -160,17 +160,22 @@ def process_webcam_frame():
                 raw_bytes = base64.b64decode(img_data)
 
         if not raw_bytes:
+            print("[WEBCAM] Flask received frame: FAILED (Empty payload)", flush=True)
             return jsonify({"success": False, "error": "Empty webcam frame payload."}), 400
+
+        print(f"[WEBCAM] Flask received frame: SUCCESS ({len(raw_bytes)} bytes)", flush=True)
 
         np_buf = np.frombuffer(raw_bytes, np.uint8)
         frame_bgr = cv2.imdecode(np_buf, cv2.IMREAD_COLOR)
         if frame_bgr is None or frame_bgr.size == 0:
+            print("[WEBCAM] OpenCV decoding: FAILED (Could not decode image)", flush=True)
             return jsonify({"success": False, "error": "Could not decode webcam frame image."}), 400
 
         result = webcam_processor.process_frame(frame_bgr)
         result["success"] = True
         return jsonify(result)
     except Exception as e:
+        print(f"[WEBCAM] Frame processing error: {e}", flush=True)
         return jsonify({"success": False, "error": f"Frame processing error: {str(e)}"}), 500
 
 # =========================================================================
