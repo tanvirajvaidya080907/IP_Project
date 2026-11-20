@@ -67,13 +67,14 @@
             <!-- Left Panel: Visual Evidence -->
             <div class="card-panel">
                 <h3 class="panel-title">
-                    <span></span>
+                    <span class="panel-title-pip"></span>
                     <span>Visual Plate Localization</span>
                 </h3>
 
                 <div class="image-viewer">
                     <div class="detected-vehicle-frame">
                         <img src="{{ url_for('uploaded_file', filename=result.debug_image_filename) }}" alt="Detected Vehicle with Green Box">
+                        <div class="scan-laser-line"></div>
                     </div>
 
                     <div class="crop-preview-box">
@@ -90,7 +91,7 @@
             <!-- Right Panel: Vehicle Profile Specs -->
             <div class="card-panel">
                 <h3 class="panel-title">
-                    <span></span>
+                    <span class="panel-title-pip"></span>
                     <span>Vehicle Profile Information</span>
                 </h3>
 
@@ -174,7 +175,7 @@
         <!-- Technical Analysis & Diagnostics -->
         <div class="ocr-breakdown-card">
             <h3 class="panel-title">
-                <span></span>
+                <span class="panel-title-pip"></span>
                 <span>Optical Character Recognition (OCR) Diagnostics</span>
             </h3>
 

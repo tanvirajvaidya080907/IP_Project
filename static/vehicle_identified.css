@@ -1,21 +1,42 @@
+/* =========================================================================
+   DARK AUTOMOTIVE DASHBOARD THEME — GRAPHITE & TEAL UI
+   Vehicle Profile Identification & OCR Diagnostics
+   Palette:
+     - Dark Charcoal Navy: #171F2A (Main website background)
+     - Slate Blue Grey:    #202D3A (Main panels and cards)
+     - Muted Steel Grey:   #303E4B (Secondary surfaces, borders, dividers)
+     - Teal / Turquoise:   #35D6C0 (Highlights, active states, key data)
+     - Cool Off-White:     #E5EDF2 (Main headings and prominent text)
+     - Muted Blue Grey:    #91A0AE (Secondary text, labels, descriptions)
+   ========================================================================= */
+
 :root {
-    --bg-dark: #07111F;
-    --bg-card: rgba(13, 27, 49, 0.75);
-    --bg-glass: rgba(16, 33, 62, 0.65);
-    --primary: #2563EB;
-    --primary-hover: #1D4ED8;
-    --secondary: #22D3EE;
-    --secondary-glow: rgba(34, 211, 238, 0.35);
-    --accent-glow: rgba(37, 99, 235, 0.25);
-    --border-glass: rgba(34, 211, 238, 0.25);
-    --text-main: #FFFFFF;
-    --text-muted: #94A3B8;
-    --text-dim: #64748B;
+    --bg-dark: #171F2A;
+    --bg-card: #202D3A;
+    --bg-surface: #263545;
+    --bg-surface-alt: #1B2633;
+    --bg-glass: #1F2C3A;
+
+    --border-glass: #303E4B;
+    --border-subtle: rgba(48, 62, 75, 0.7);
+    --border-focus: #35D6C0;
+
+    --primary: #35D6C0;
+    --primary-hover: #2ec4af;
+    --secondary: #35D6C0;
+    --secondary-glow: rgba(53, 214, 192, 0.2);
+    --accent-glow: rgba(53, 214, 192, 0.25);
+
+    --text-main: #E5EDF2;
+    --text-muted: #91A0AE;
+    --text-dim: #6B7C8E;
+
     --success: #10B981;
-    --success-glow: rgba(16, 185, 129, 0.35);
+    --success-bg: rgba(16, 185, 129, 0.12);
     --warning: #F59E0B;
-    --warning-glow: rgba(245, 158, 11, 0.35);
+    --warning-bg: rgba(245, 158, 11, 0.12);
     --danger: #EF4444;
+    --danger-bg: rgba(239, 68, 68, 0.12);
 }
 
 * {
@@ -27,97 +48,116 @@
 body {
     background-color: var(--bg-dark);
     background-image: 
-        radial-gradient(circle at 10% 15%, rgba(37, 99, 235, 0.15) 0%, transparent 40%),
-        radial-gradient(circle at 90% 85%, rgba(34, 211, 238, 0.12) 0%, transparent 45%),
-        linear-gradient(180deg, rgba(7, 17, 31, 0.95) 0%, rgba(5, 13, 24, 0.98) 100%);
+        radial-gradient(circle at 50% 0%, #202D3A 0%, #171F2A 55%);
     background-attachment: fixed;
     color: var(--text-main);
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
 }
 
 .results-container {
     max-width: 1200px;
     margin: 0 auto;
-    padding: 2.5rem 1.5rem;
+    padding: 2.25rem 1.5rem;
+    animation: pageEntrance 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* Header Navigation */
+/* =========================================================================
+   HEADER NAVIGATION
+   ========================================================================= */
 .nav-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 2rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.85rem;
+    border-bottom: 1px solid var(--border-glass);
 }
 
 .btn-back {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.6rem 1.25rem;
-    background: rgba(37, 99, 235, 0.15);
+    padding: 0.55rem 1.25rem;
+    background: var(--bg-card);
     border: 1px solid var(--border-glass);
-    border-radius: 0.5rem;
-    color: var(--secondary);
+    border-radius: 6px;
+    color: var(--text-main);
     text-decoration: none;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     font-weight: 600;
-    transition: all 0.25s ease;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .btn-back:hover {
-    background: var(--primary);
-    color: #FFFFFF;
-    box-shadow: 0 0 15px var(--accent-glow);
-    transform: translateX(-3px);
+    background: #253545;
+    border-color: var(--secondary);
+    color: var(--secondary);
+    transform: translateX(-2px);
+    box-shadow: 0 0 12px var(--secondary-glow);
 }
 
-/* Hero Plate Banner */
+.btn-back:active {
+    transform: translateX(-1px) scale(0.98);
+}
+
+/* =========================================================================
+   HERO PLATE CARD BANNER
+   ========================================================================= */
 .hero-plate-card {
     background: var(--bg-card);
-    backdrop-filter: blur(16px);
     border: 1px solid var(--border-glass);
-    border-radius: 1rem;
-    padding: 2.5rem;
+    border-radius: 12px;
+    padding: 2rem 1.5rem;
     text-align: center;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-    margin-bottom: 2rem;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    margin-bottom: 1.75rem;
     position: relative;
-    overflow: hidden;
+    animation: slideUpFade 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+    transition: border-color 0.25s ease, box-shadow 0.25s ease;
 }
 
-.hero-plate-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    background: linear-gradient(90deg, #2563EB, #22D3EE, #10B981);
+.hero-plate-card:hover {
+    border-color: rgba(53, 214, 192, 0.35);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 18px rgba(53, 214, 192, 0.08);
 }
 
 .section-label {
     text-transform: uppercase;
-    font-size: 0.85rem;
+    font-size: 0.72rem;
     letter-spacing: 0.12em;
-    color: var(--secondary);
+    color: var(--text-muted);
     font-weight: 700;
-    margin-bottom: 1rem;
+    margin-bottom: 0.85rem;
 }
 
-/* Authentic Indian HSRP Style License Plate Display */
+/* Authentic Indian HSRP License Plate Display */
 .hsrp-plate {
     display: inline-flex;
     align-items: center;
     background: #FFFFFF;
-    color: #111827;
-    border: 3px solid #111827;
-    border-radius: 8px;
+    color: #0F172A;
+    border: 2.5px solid #0F172A;
+    border-radius: 6px;
     padding: 0.35rem 1.5rem 0.35rem 0.5rem;
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.6), inset 0 0 4px rgba(0, 0, 0, 0.3);
-    margin: 1rem 0;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    margin: 0.75rem 0;
+    animation: plateHighlightPulse 1.8s ease-out 0.15s 1 normal forwards;
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.hsrp-plate:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(53, 214, 192, 0.25), 0 4px 16px rgba(0, 0, 0, 0.6);
+}
+    background: #FFFFFF;
+    color: #0F172A;
+    border: 2.5px solid #0F172A;
+    border-radius: 6px;
+    padding: 0.35rem 1.5rem 0.35rem 0.5rem;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    margin: 0.75rem 0;
 }
 
 .hsrp-strip {
@@ -127,32 +167,32 @@ body {
     justify-content: center;
     background: #003399;
     color: #FFFFFF;
-    padding: 0.25rem 0.5rem;
-    border-radius: 4px;
+    padding: 0.25rem 0.45rem;
+    border-radius: 3px;
     margin-right: 1.25rem;
-    min-width: 36px;
+    min-width: 34px;
 }
 
 .hsrp-ind {
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     font-weight: 900;
     letter-spacing: 0.05em;
     line-height: 1;
 }
 
 .hsrp-chakra {
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
     border-radius: 50%;
     border: 1px dashed #FFFFFF;
-    margin-top: 3px;
+    margin-top: 2px;
 }
 
 .hsrp-number {
     font-family: 'JetBrains Mono', 'Consolas', monospace;
-    font-size: 2.75rem;
+    font-size: 2.5rem;
     font-weight: 900;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.08em;
     color: #0F172A;
 }
 
@@ -160,48 +200,56 @@ body {
 .status-pill-grid {
     display: flex;
     justify-content: center;
-    gap: 1.25rem;
+    gap: 0.75rem;
     flex-wrap: wrap;
-    margin-top: 1.5rem;
+    margin-top: 1.25rem;
 }
 
 .status-pill {
-    padding: 0.45rem 1.2rem;
+    padding: 0.35rem 1rem;
     border-radius: 9999px;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     font-weight: 600;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    background: var(--bg-glass);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    gap: 0.4rem;
+    background: var(--bg-surface-alt);
+    border: 1px solid var(--border-glass);
+    color: var(--text-muted);
+}
+
+.status-pill strong {
+    color: var(--text-main);
 }
 
 .pill-matched {
-    background: rgba(16, 185, 129, 0.15);
-    border-color: var(--success);
-    color: #34D399;
-    box-shadow: 0 0 15px var(--success-glow);
+    background: var(--success-bg);
+    border-color: rgba(16, 185, 129, 0.4);
+    color: var(--success);
 }
 
 .pill-not-found {
-    background: rgba(245, 158, 11, 0.15);
-    border-color: var(--warning);
-    color: #FBBF24;
-    box-shadow: 0 0 15px var(--warning-glow);
+    background: var(--warning-bg);
+    border-color: rgba(245, 158, 11, 0.4);
+    color: var(--warning);
 }
 
 .pill-info {
-    border-color: var(--secondary);
+    border-color: var(--border-glass);
+}
+
+.pill-info strong {
     color: var(--secondary);
 }
 
-/* Main Split View: Images & Profile */
+/* =========================================================================
+   MAIN SPLIT VIEW: IMAGERY & VEHICLE PROFILE
+   ========================================================================= */
 .result-split-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 2rem;
-    margin-bottom: 2rem;
+    gap: 1.5rem;
+    margin-bottom: 1.75rem;
 }
 
 @media (max-width: 900px) {
@@ -212,44 +260,80 @@ body {
 
 .card-panel {
     background: var(--bg-card);
-    backdrop-filter: blur(16px);
     border: 1px solid var(--border-glass);
-    border-radius: 1rem;
-    padding: 1.75rem;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    animation: slideUpFade 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+    transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.card-panel:hover {
+    border-color: rgba(53, 214, 192, 0.35);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 16px rgba(53, 214, 192, 0.08);
 }
 
 .panel-title {
-    font-size: 1.2rem;
+    font-size: 1.05rem;
     font-weight: 700;
-    margin-bottom: 1.25rem;
+    margin-bottom: 1rem;
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    color: var(--secondary);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    padding-bottom: 0.75rem;
+    color: var(--text-main);
+    border-bottom: 1px solid var(--border-glass);
+    padding-bottom: 0.65rem;
 }
 
-/* Image Visualizer */
+.panel-title-pip {
+    width: 3px;
+    height: 14px;
+    background: var(--secondary);
+    border-radius: 2px;
+    display: inline-block;
+}
+
+/* =========================================================================
+   LEFT PANEL: VISUAL PLATE LOCALIZATION
+   ========================================================================= */
 .image-viewer {
     text-align: center;
 }
 
 .detected-vehicle-frame {
     position: relative;
-    border-radius: 0.75rem;
+    border-radius: 8px;
     overflow: hidden;
     border: 1px solid var(--border-glass);
-    margin-bottom: 1.5rem;
-    background: #000000;
+    margin-bottom: 1rem;
+    background: #10161E;
 }
 
 .detected-vehicle-frame img {
     width: 100%;
-    max-height: 380px;
+    max-height: 340px;
     object-fit: contain;
     display: block;
+}
+
+/* Subtle Horizontal Teal Scanning Line Overlay */
+.scan-laser-line {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, 
+        transparent 0%, 
+        rgba(53, 214, 192, 0.25) 20%, 
+        #35D6C0 50%, 
+        rgba(53, 214, 192, 0.25) 80%, 
+        transparent 100%
+    );
+    box-shadow: 0 0 10px rgba(53, 214, 192, 0.7), 0 0 4px #35D6C0;
+    pointer-events: none;
+    z-index: 10;
+    animation: scanSweepDown 3.8s ease-in-out infinite;
 }
 
 .crop-preview-box {
@@ -257,73 +341,173 @@ body {
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
-    background: var(--bg-glass);
-    padding: 1rem;
-    border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--bg-surface-alt);
+    padding: 0.85rem 1rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-glass);
+    transition: border-color 0.25s ease;
+}
+
+.crop-preview-box:hover {
+    border-color: rgba(53, 214, 192, 0.4);
 }
 
 .crop-preview-box img {
-    max-height: 70px;
-    max-width: 180px;
-    border: 1px solid var(--secondary);
+    max-height: 60px;
+    max-width: 160px;
+    border: 1.5px solid var(--secondary);
     border-radius: 4px;
+    background: #10161E;
+    animation: boxReveal 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.crop-preview-box img:hover {
+    transform: scale(1.03);
+    box-shadow: 0 0 12px var(--secondary-glow);
 }
 
 .crop-meta {
     text-align: left;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    line-height: 1.5;
 }
 
 .crop-meta strong {
     color: var(--text-main);
 }
 
-/* Vehicle Profile Details Table */
+/* =========================================================================
+   RIGHT PANEL: VEHICLE PROFILE INFORMATION
+   ========================================================================= */
 .profile-specs-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 1rem;
+    gap: 0.75rem;
+}
+
+@media (max-width: 500px) {
+    .profile-specs-grid {
+        grid-template-columns: 1fr;
+    }
+    .spec-item.full-width {
+        grid-column: span 1 !important;
+    }
 }
 
 .spec-item {
-    background: var(--bg-glass);
+    background: var(--bg-surface-alt);
     padding: 0.85rem 1rem;
-    border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    border: 1px solid var(--border-glass);
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), 
+                border-color 0.2s ease, 
+                background-color 0.2s ease;
 }
+
+.spec-item:hover {
+    background: #233140;
+    border-color: rgba(53, 214, 192, 0.4);
+    transform: translateY(-1px);
+}
+
+/* Staggered entry animation for vehicle profile specs cards */
+.profile-specs-grid .spec-item {
+    animation: specCardFadeIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.profile-specs-grid .spec-item:nth-child(1) { animation-delay: 0.05s; }
+.profile-specs-grid .spec-item:nth-child(2) { animation-delay: 0.10s; }
+.profile-specs-grid .spec-item:nth-child(3) { animation-delay: 0.15s; }
+.profile-specs-grid .spec-item:nth-child(4) { animation-delay: 0.20s; }
+.profile-specs-grid .spec-item:nth-child(5) { animation-delay: 0.25s; }
+.profile-specs-grid .spec-item:nth-child(6) { animation-delay: 0.30s; }
 
 .spec-item.full-width {
     grid-column: span 2;
 }
 
 .spec-label {
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
     color: var(--text-muted);
+    font-weight: 600;
     margin-bottom: 0.25rem;
 }
 
 .spec-value {
     font-size: 1.05rem;
     font-weight: 700;
-    color: #FFFFFF;
+    color: var(--text-main);
 }
 
 .highlight-val {
-    color: var(--secondary);
+    color: var(--secondary) !important;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.25rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
 }
 
-/* OCR Candidates Card */
+.spec-muted {
+    color: var(--text-dim) !important;
+    font-weight: 500 !important;
+}
+
+/* Fallback Registration Notice */
+.fallback-banner {
+    background: rgba(53, 214, 192, 0.08);
+    border: 1px solid rgba(53, 214, 192, 0.25);
+    border-radius: 6px;
+    padding: 0.65rem 0.85rem;
+    margin-bottom: 1rem;
+    animation: slideUpFade 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.fallback-badge-row {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    flex-wrap: wrap;
+}
+
+.source-badge {
+    background: rgba(53, 214, 192, 0.15);
+    color: var(--secondary);
+    border: 1px solid rgba(53, 214, 192, 0.4);
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.15rem 0.55rem;
+    border-radius: 9999px;
+    letter-spacing: 0.03em;
+    display: inline-block;
+}
+
+.fallback-status-text {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+
+/* =========================================================================
+   BOTTOM PANEL: OCR DIAGNOSTICS & MULTI-VARIANT CHIPS
+   ========================================================================= */
 .ocr-breakdown-card {
     background: var(--bg-card);
-    backdrop-filter: blur(16px);
     border: 1px solid var(--border-glass);
-    border-radius: 1rem;
-    padding: 1.75rem;
+    border-radius: 12px;
+    padding: 1.5rem;
     margin-bottom: 2rem;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    animation: slideUpFade 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+    transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.ocr-breakdown-card:hover {
+    border-color: rgba(53, 214, 192, 0.35);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 16px rgba(53, 214, 192, 0.08);
 }
 
 .candidate-chips {
@@ -334,85 +518,130 @@ body {
 }
 
 .candidate-chip {
-    background: rgba(37, 99, 235, 0.2);
+    background: var(--bg-surface-alt);
     border: 1px solid var(--border-glass);
-    color: var(--secondary);
-    padding: 0.35rem 0.85rem;
+    color: var(--text-muted);
+    padding: 0.3rem 0.75rem;
     border-radius: 4px;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     font-weight: 600;
+    transition: all 0.2s ease;
+    cursor: default;
+}
+
+.candidate-chip:hover {
+    border-color: var(--secondary);
+    color: var(--text-main);
+    transform: translateY(-1px);
 }
 
 .candidate-chip.active {
     background: var(--secondary);
-    color: #07111F;
+    color: #171F2A;
     border-color: var(--secondary);
+    font-weight: 700;
     box-shadow: 0 0 10px var(--secondary-glow);
 }
 
-/* Empty State / Not Found Notice */
-.not-found-card {
-    text-align: center;
-    padding: 2.5rem 1.5rem;
-    background: var(--bg-glass);
-    border-radius: 0.75rem;
-    border: 1px dashed var(--warning);
+/* =========================================================================
+   KEYFRAME ANIMATIONS
+   ========================================================================= */
+@keyframes pageEntrance {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
-.not-found-icon {
-    font-size: 3rem;
-    color: var(--warning);
-    margin-bottom: 1rem;
+@keyframes slideUpFade {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
-.not-found-card h3 {
-    font-size: 1.25rem;
-    margin-bottom: 0.5rem;
-    color: var(--warning);
+@keyframes plateHighlightPulse {
+    0% {
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 0 0 rgba(53, 214, 192, 0);
+    }
+    35% {
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 20px 4px rgba(53, 214, 192, 0.45);
+    }
+    100% {
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 0 0 rgba(53, 214, 192, 0);
+    }
 }
 
-.not-found-card p {
-    color: var(--text-muted);
-    font-size: 0.9rem;
-    max-width: 500px;
-    margin: 0 auto;
+@keyframes scanSweepDown {
+    0% {
+        top: 0%;
+        opacity: 0;
+    }
+    12% {
+        opacity: 0.85;
+    }
+    48% {
+        top: 98%;
+        opacity: 0.85;
+    }
+    54% {
+        opacity: 0;
+        top: 98%;
+    }
+    100% {
+        top: 0%;
+        opacity: 0;
+    }
 }
 
-/* Fallback Registration Notice */
-.fallback-banner {
-    background: rgba(34, 211, 238, 0.08);
-    border: 1px solid rgba(34, 211, 238, 0.25);
-    border-radius: 0.5rem;
-    padding: 0.75rem 1rem;
-    margin-bottom: 1.25rem;
+@keyframes boxReveal {
+    0% {
+        box-shadow: 0 0 0 0 rgba(53, 214, 192, 0);
+        transform: scale(0.97);
+        opacity: 0.7;
+    }
+    50% {
+        box-shadow: 0 0 14px rgba(53, 214, 192, 0.4);
+        opacity: 1;
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(53, 214, 192, 0);
+        transform: scale(1);
+        opacity: 1;
+    }
 }
 
-.fallback-badge-row {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    flex-wrap: wrap;
+@keyframes specCardFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
-.source-badge {
-    background: rgba(34, 211, 238, 0.2);
-    color: var(--secondary);
-    border: 1px solid rgba(34, 211, 238, 0.4);
-    font-size: 0.75rem;
-    font-weight: 700;
-    padding: 0.2rem 0.65rem;
-    border-radius: 9999px;
-    letter-spacing: 0.03em;
-    display: inline-block;
-}
-
-.fallback-status-text {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-}
-
-.spec-muted {
-    color: var(--text-dim) !important;
-    font-weight: 500 !important;
+/* =========================================================================
+   ACCESSIBILITY: PREFERS-REDUCED-MOTION
+   ========================================================================= */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+    .scan-laser-line {
+        display: none !important;
+    }
 }

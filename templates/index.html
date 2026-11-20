@@ -27,28 +27,28 @@
         <!-- Pipeline Architecture HUD -->
         <div class="pipeline-hud">
             <div class="pipeline-step">
-                <div class="step-icon"></div>
+                <div class="step-icon">01</div>
                 <div class="step-details">
                     <h4>Stage 1: Detection</h4>
                     <p>YOLO (video_images)</p>
                 </div>
             </div>
             <div class="pipeline-step">
-                <div class="step-icon"></div>
+                <div class="step-icon">02</div>
                 <div class="step-details">
                     <h4>Stage 2: Localization</h4>
                     <p>Green Bounding Box</p>
                 </div>
             </div>
             <div class="pipeline-step">
-                <div class="step-icon"></div>
+                <div class="step-icon">03</div>
                 <div class="step-details">
                     <h4>Stage 3: OCR Extraction</h4>
                     <p>Tesseract + OpenCV</p>
                 </div>
             </div>
             <div class="pipeline-step">
-                <div class="step-icon"></div>
+                <div class="step-icon">04</div>
                 <div class="step-details">
                     <h4>Stage 4: Profiling</h4>
                     <p>Database Matching</p>
@@ -58,7 +58,7 @@
 
         {% if error_message %}
         <div class="alert-box alert-danger">
-            <span style="font-size: 1.3rem;"></span>
+            <span style="font-size: 1.1rem; line-height: 1;">⚠️</span>
             <div>
                 <strong>Analysis Error:</strong> {{ error_message }}
             </div>
@@ -68,11 +68,9 @@
         <!-- Mode Navigation Tabs -->
         <div class="mode-nav-tabs">
             <a href="{{ url_for('index') }}" class="tab-btn active">
-                <span></span>
                 <span>Static Image Mode</span>
             </a>
             <a href="{{ url_for('live') }}" class="tab-btn">
-                <span></span>
                 <span>Live AI Webcam Feed</span>
             </a>
         </div>
@@ -84,7 +82,9 @@
                     <input type="file" id="file-input" name="vehicle_image" accept=".jpg,.jpeg,.png,.webp" style="display: none;" required>
                     
                     <div class="drop-zone" id="drop-zone">
-                        <div class="drop-zone-icon"></div>
+                        <div class="drop-zone-icon">
+                            <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                        </div>
                         <h3 class="drop-zone-title">Upload Vehicle Image</h3>
                         <p class="drop-zone-hint">Drag and drop any high-resolution vehicle snapshot or frame</p>
                         <button type="button" class="btn-browse" onclick="document.getElementById('file-input').click()">
